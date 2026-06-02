@@ -62,6 +62,17 @@ export function money(v) {
     style: 'currency', currency: CURRENCY,
   }).format(v || 0);
 }
+// The currency symbol alone (e.g. "€" for EUR) — used to label price inputs.
+export function currencySymbol() {
+  try {
+    const parts = new Intl.NumberFormat(LANG === 'de' ? 'de-AT' : 'en-US', {
+      style: 'currency', currency: CURRENCY,
+    }).formatToParts(0);
+    return parts.find((p) => p.type === 'currency')?.value || CURRENCY;
+  } catch {
+    return CURRENCY;
+  }
+}
 export function time(ts) {
   return new Date(ts).toLocaleTimeString(LANG === 'de' ? 'de-AT' : 'en-US', {
     hour: '2-digit', minute: '2-digit',

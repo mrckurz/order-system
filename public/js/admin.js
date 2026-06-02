@@ -1,5 +1,5 @@
 import {
-  loadConfig, api, t, money, time, el, tokens, connectSocket, ensureStaff, registerSW,
+  loadConfig, api, t, money, time, el, tokens, connectSocket, ensureStaff, registerSW, currencySymbol,
 } from './common.js';
 
 registerSW();
@@ -167,6 +167,8 @@ async function renderWaiters() {
 async function renderMenu() {
   const data = await api('/admin/menu', { token });
   content.innerHTML = '';
+  const curSym = currencySymbol();
+  const euro = () => el('span', { class: 'muted', style: 'margin:0 .4rem 0 .1rem' }, curSym);
   const stationOpts = (sel) => data.stations.map((s) =>
     el('option', { value: s.id, ...(s.id === sel ? { selected: '' } : {}) }, s.label)
   );
@@ -210,7 +212,7 @@ async function renderMenu() {
         toast(t('save'));
       };
       card.append(el('div', { class: 'row wrap', style: 'border-top:1px solid var(--border);padding-top:.5rem;margin-top:.5rem' },
-        nameI, priceI, stationS,
+        nameI, priceI, euro(), stationS,
         el('label', { style: 'margin:0;display:flex;align-items:center;gap:.3rem' }, activeC, t('activeShort')),
         el('button', { class: 'btn-sm btn-primary', onclick: save }, t('save')),
         el('button', { class: 'btn-sm btn-ghost', onclick: async () => {
@@ -225,7 +227,7 @@ async function renderMenu() {
     const newName = el('input', { placeholder: t('addArticle'), class: 'grow' });
     const newPrice = el('input', { type: 'number', step: '0.10', value: '0', style: 'max-width:90px' });
     card.append(el('div', { class: 'row wrap', style: 'margin-top:.6rem' },
-      newName, newPrice,
+      newName, newPrice, euro(),
       el('button', { class: 'btn-sm btn-primary', onclick: async () => {
         if (!newName.value.trim()) return;
         await api('/admin/articles', { method: 'POST', token, body: {
