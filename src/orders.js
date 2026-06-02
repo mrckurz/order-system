@@ -18,14 +18,19 @@ export function hydrateOrder(orderId) {
 }
 
 // Create an order from a waiter. `items` = [{ articleId, qty, note }].
-export function createOrder({ waiterId, table, note, items }) {
+// The order is recorded under `eventId` and only articles belonging to that
+// event's menu are accepted.
+export function createOrder({ waiterId, eventId, table, note, items }) {
   if (!Array.isArray(items) || items.length === 0) {
     throw Object.assign(new Error('order has no items'), { status: 400 });
   }
 
-  const getArticle = db.prepare('SELECT * FROM articles WHERE id = ? AND active = 1');
+  const getArticle = db.prepare(
+    `SELECT a.* FROM articles a JOIN categories c ON c.id = a.category_id
+      WHERE a.id = ? AND a.active = 1 AND c.event_id = ?`
+  );
   const insOrder = db.prepare(
-    'INSERT INTO orders (waiter_id, table_no, note, created_at) VALUES (?, ?, ?, ?)'
+    'INSERT INTO orders (event_id, waiter_id, table_no, note, created_at) VALUES (?, ?, ?, ?, ?)'
   );
   const insItem = db.prepare(
     `INSERT INTO order_items (order_id, article_id, name, price, qty, station, note)
@@ -34,13 +39,14 @@ export function createOrder({ waiterId, table, note, items }) {
 
   const tx = db.transaction(() => {
     const { lastInsertRowid: orderId } = insOrder.run(
+      eventId ?? null,
       waiterId ?? null,
       table ? String(table) : null,
       note ? String(note) : null,
       Date.now()
     );
     for (const line of items) {
-      const art = getArticle.get(line.articleId);
+      const art = getArticle.get(line.articleId, eventId ?? null);
       if (!art) throw Object.assign(new Error(`unknown article ${line.articleId}`), { status: 400 });
       const qty = Math.max(1, parseInt(line.qty, 10) || 1);
       insItem.run(orderId, art.id, art.name, art.price, qty, art.station, line.note || null);
@@ -85,17 +91,17 @@ function triggerPrints(order) {
 
 // Open items for a station, grouped by order, newest-arriving last
 // (so the display naturally reflects arrival order).
-export function getStationQueue(station) {
+export function getStationQueue(station, eventId) {
   const orders = db
     .prepare(
       `SELECT DISTINCT o.id, o.table_no, o.note, o.created_at, w.name AS waiter_name
          FROM orders o
          JOIN order_items i ON i.order_id = o.id
          LEFT JOIN waiters w ON w.id = o.waiter_id
-        WHERE i.station = ? AND i.status = 'open'
+        WHERE i.station = ? AND i.status = 'open' AND o.event_id = ?
         ORDER BY o.created_at ASC`
     )
-    .all(station);
+    .all(station, eventId);
   const itemsStmt = db.prepare(
     "SELECT * FROM order_items WHERE order_id = ? AND station = ? ORDER BY id"
   );
@@ -133,15 +139,16 @@ export function reprintOrder(orderId) {
   return order;
 }
 
-// All orders for the admin overview (most recent first).
-export function listOrders({ limit = 200 } = {}) {
+// All orders of an event for the admin overview (most recent first).
+export function listOrders({ eventId, limit = 200 } = {}) {
   const orders = db
     .prepare(
       `SELECT o.*, w.name AS waiter_name
          FROM orders o LEFT JOIN waiters w ON w.id = o.waiter_id
+        WHERE o.event_id = ?
         ORDER BY o.created_at DESC LIMIT ?`
     )
-    .all(limit);
+    .all(eventId, limit);
   const itemsStmt = db.prepare('SELECT * FROM order_items WHERE order_id = ? ORDER BY id');
   for (const o of orders) {
     o.items = itemsStmt.all(o.id);

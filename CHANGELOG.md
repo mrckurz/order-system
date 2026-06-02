@@ -7,6 +7,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Events/festivals as first-class entities.** Create named events; one is "active".
+  Menu, waiters and orders are all scoped per event and stored permanently.
+  - Admin → **Feste/Events** tab: create (optionally copying another event's menu),
+    activate, rename, close/reopen, delete; the active event shows in the header.
+  - Safe migration: existing data is preserved as the first event ("Mein Fest").
+- **Statistics dashboard per event** (Admin → Statistik): total revenue, order count,
+  average order, revenue/orders per waiter, products sold, and per-station breakdown,
+  with **CSV export** per event.
 - Currency symbol (e.g. €) shown next to the editable price fields in the Admin → Menu editor.
 - **Account-based authentication**: log in with username + password (scrypt-hashed).
   - Multiple **admin** and **station** accounts, managed in the new Admin → **Team** screen
