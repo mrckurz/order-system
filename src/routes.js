@@ -36,7 +36,10 @@ function getMenu({ includeInactive = false } = {}) {
 }
 
 function waiterLink(claimToken) {
-  return `${config.publicUrl}/w/${claimToken}`;
+  // Point at the frontend (GitHub Pages in hybrid mode), else the backend which
+  // serves the PWA itself. Query-param form works on static hosting (no rewrites).
+  const base = config.frontendUrl || config.publicUrl;
+  return `${base}/waiter.html?c=${claimToken}`;
 }
 
 const asyncH = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);

@@ -17,7 +17,7 @@ export async function startStation({ station, titleKey, accentClass = '', showRe
     el('span', { class: 'badge', id: 'count' }, '0'),
     el('button', {
       class: 'btn-sm btn-ghost', style: 'color:#fff',
-      onclick: () => { tokens.clearAdmin(); location.href = '/'; },
+      onclick: () => { tokens.clearAdmin(); location.href = 'index.html'; },
     }, t('logout'))
   );
   const main = el('main', {}, el('div', { class: 'cols', id: 'queue' }));

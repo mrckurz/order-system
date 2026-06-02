@@ -1,0 +1,12 @@
+node_modules
+dist
+data
+spool
+.git
+.github
+.env
+.env.*
+*.log
+docs
+test
+*.md

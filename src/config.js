@@ -14,6 +14,15 @@ function bool(v, def = false) {
 const config = {
   port: Number(process.env.PORT) || 3000,
   publicUrl: (process.env.PUBLIC_URL || `http://localhost:${Number(process.env.PORT) || 3000}`).replace(/\/$/, ''),
+  // Where the PWA is hosted (e.g. the GitHub Pages URL in hybrid mode). Used to
+  // build waiter links. Falls back to publicUrl (backend-served mode).
+  frontendUrl: (process.env.FRONTEND_URL || '').replace(/\/$/, ''),
+  // Allowed CORS origins for the API + websockets. Comma-separated, or "*".
+  // In hybrid mode set this to your GitHub Pages origin.
+  corsOrigins: (process.env.CORS_ORIGIN || '*')
+    .split(',')
+    .map((s) => s.trim().replace(/\/$/, ''))
+    .filter(Boolean),
 
   adminPassword: process.env.ADMIN_PASSWORD || 'changeme',
   // Optional separate password for the Bar/Kitchen displays operated by helpers.

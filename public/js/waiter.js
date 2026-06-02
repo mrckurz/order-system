@@ -17,20 +17,28 @@ function toast(msg, err = false) {
 }
 
 // ---- Authentication: claim a single-use link, or use stored session ----
+// The claim token arrives either as a query param (?c=… — used on GitHub Pages)
+// or as a path segment (/w/… — backend-served convenience route).
+function readClaimToken() {
+  const q = new URLSearchParams(location.search).get('c');
+  if (q) return q;
+  const m = location.pathname.match(/\/w\/(.+)$/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 async function authenticate() {
-  const match = location.pathname.match(/^\/w\/(.+)$/);
-  if (match) {
-    const claimToken = decodeURIComponent(match[1]);
+  const claimToken = readClaimToken();
+  if (claimToken) {
     try {
       const r = await api('/waiters/claim', { method: 'POST', body: { claimToken } });
       tokens.setWaiter(r.sessionToken);
       // Drop the claim token from the URL so it isn't re-used or shared.
-      history.replaceState(null, '', '/waiter.html');
+      history.replaceState(null, '', 'waiter.html');
       return r.sessionToken;
     } catch (e) {
       // If we already hold a valid session, the link was just re-opened — ignore.
       if (tokens.waiter() && e.status === 409) {
-        history.replaceState(null, '', '/waiter.html');
+        history.replaceState(null, '', 'waiter.html');
         return tokens.waiter();
       }
       return { error: e.status === 409 ? 'already_claimed' : 'invalid' };
@@ -71,7 +79,7 @@ $('logoutBtn').textContent = t('logout');
 $('logoutBtn').hidden = false;
 $('logoutBtn').addEventListener('click', () => {
   tokens.clearWaiter();
-  location.href = '/';
+  location.href = 'index.html';
 });
 $('sendLabel').textContent = t('send');
 $('clearBtn').textContent = t('clear');

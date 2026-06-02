@@ -1,0 +1,40 @@
+# Fly.io config for the OrderFlow backend. Recommended for events because it
+# supports a cheap persistent volume (your order data survives restarts).
+#
+# Setup:
+#   fly launch --no-deploy            # creates the app (edit the name below)
+#   fly volumes create orderflow_data --size 1 --region fra
+#   fly secrets set ADMIN_PASSWORD=... STATION_PASSWORD=... SESSION_SECRET=... \
+#                   CORS_ORIGIN=https://<user>.github.io \
+#                   FRONTEND_URL=https://<user>.github.io/order-system
+#   fly deploy
+app = "orderflow-api"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+  PRINTER_TYPE = "none"
+  DB_PATH = "/data/orderflow.db"
+  DEFAULT_LANG = "de"
+  CURRENCY = "EUR"
+
+[[mounts]]
+  source = "orderflow_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.checks]
+    [http_service.checks.health]
+      method = "get"
+      path = "/healthz"
+      interval = "30s"
+      timeout = "5s"

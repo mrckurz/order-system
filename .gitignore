@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Pages build output
+dist/
+
 # Environment & secrets
 .env
 .env.local

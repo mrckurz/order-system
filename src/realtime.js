@@ -1,5 +1,6 @@
 import { Server } from 'socket.io';
 import { authForSocket } from './auth.js';
+import config from './config.js';
 
 let io = null;
 
@@ -9,7 +10,10 @@ function reject(socket) {
 }
 
 export function initRealtime(httpServer) {
-  io = new Server(httpServer, { cors: { origin: true } });
+  const allowAll = config.corsOrigins.includes('*');
+  io = new Server(httpServer, {
+    cors: { origin: allowAll ? true : config.corsOrigins },
+  });
 
   io.on('connection', (socket) => {
     const { token, room } = socket.handshake.auth || {};

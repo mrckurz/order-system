@@ -64,12 +64,18 @@ export const tokens = {
   clearWaiter: () => localStorage.removeItem(WAITER_KEY),
 };
 
+// ---- Runtime config (set by public/config.js, overwritten at Pages build) ----
+// apiBase: origin of the backend API ("" = same origin, for backend-served mode).
+// socketScript: URL of the socket.io client ("" = derive from apiBase).
+const RT = (typeof window !== 'undefined' && window.ORDERFLOW_CONFIG) || {};
+export const API_BASE = (RT.apiBase || '').replace(/\/$/, '');
+
 // ---- API ----
 export async function api(pathName, { method = 'GET', body, token } = {}) {
   const headers = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`/api${pathName}`, {
+  const res = await fetch(`${API_BASE}/api${pathName}`, {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -93,9 +99,32 @@ export async function loadConfig() {
 }
 
 // ---- realtime ----
-export function connectSocket({ token, room, on = {} }) {
-  // socket.io client is served by the server at /socket.io/socket.io.js
-  const socket = window.io('/', { auth: { token, room } });
+// Load the socket.io client on demand. In backend-served mode it comes from
+// `${API_BASE}/socket.io/socket.io.js`; the Pages build vendors a local copy
+// and sets ORDERFLOW_CONFIG.socketScript instead.
+let ioLoading;
+function loadIo() {
+  if (window.io) return Promise.resolve();
+  if (!ioLoading) {
+    const src = RT.socketScript || `${API_BASE}/socket.io/socket.io.js`;
+    ioLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.append(s);
+    });
+  }
+  return ioLoading;
+}
+
+export async function connectSocket({ token, room, on = {} }) {
+  try {
+    await loadIo();
+  } catch {
+    return null; // realtime unavailable; screens still work via manual refresh
+  }
+  const socket = window.io(API_BASE || '/', { auth: { token, room } });
   for (const [evt, fn] of Object.entries(on)) socket.on(evt, fn);
   return socket;
 }
@@ -103,7 +132,8 @@ export function connectSocket({ token, room, on = {} }) {
 // ---- PWA ----
 export function registerSW() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    // Relative path so the scope matches the GitHub Pages subpath too.
+    navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 }
 

@@ -81,6 +81,17 @@ Open <http://localhost:3000> and pick a screen:
 
 > 💡 **Tip:** keep the laptop awake and plugged in. All data lives in `data/orderflow.db` — back it up after the event if you want the numbers.
 
+## Deployment options
+
+OrderFlow is two parts — a **static PWA** (`public/`) and a **Node backend** (`src/`) — that you can run together or split apart. See **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** for full step-by-step guides.
+
+| Model | Frontend | Backend | Good for |
+| --- | --- | --- | --- |
+| **One server** | served by the backend | laptop / VPS / Raspberry Pi | the event itself; no CORS, works offline on LAN |
+| **Hybrid** | **GitHub Pages** (free HTTPS) | cloud (Render / Fly.io / any Docker host) | a public, always-on instance |
+
+> ⚠️ **GitHub Pages can't run the backend** — it only hosts static files. In hybrid mode the API, database and websockets run on a cloud server, and the PWA is told its address at build time via the `ORDERFLOW_API_URL` Actions variable. Includes ready-made `Dockerfile`, `render.yaml`, `fly.toml` and a Pages deploy workflow.
+
 ## Configuration
 
 All configuration is via `.env` (see [.env.example](.env.example) for the full list):

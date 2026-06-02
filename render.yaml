@@ -1,0 +1,41 @@
+# Render.com blueprint for the OrderFlow backend (API + websockets).
+# Deploy: push to GitHub, then "New + → Blueprint" on render.com and pick this repo.
+# Docs: docs/DEPLOYMENT.md
+services:
+  - type: web
+    name: orderflow-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    healthCheckPath: /healthz
+    envVars:
+      # Set these in the Render dashboard (sync:false = not stored in the repo):
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: STATION_PASSWORD
+        sync: false
+      # Allowed frontend origin(s) for CORS — your GitHub Pages URL, e.g.
+      #   https://<user>.github.io
+      - key: CORS_ORIGIN
+        sync: false
+      # Base URL used in waiter links — your GitHub Pages app URL, e.g.
+      #   https://<user>.github.io/order-system
+      - key: FRONTEND_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: PRINTER_TYPE
+        value: none
+      - key: DEFAULT_LANG
+        value: de
+      - key: CURRENCY
+        value: EUR
+      # NOTE: the free plan has an EPHEMERAL filesystem (data is lost on
+      # redeploy/sleep). For a real event use a paid instance with a disk:
+      # uncomment the block below and set DB_PATH=/data/orderflow.db.
+      # - key: DB_PATH
+      #   value: /data/orderflow.db
+    # disk:
+    #   name: data
+    #   mountPath: /data
+    #   sizeGB: 1

@@ -77,7 +77,7 @@ test('full order lifecycle: create waiter, single-use claim, order, station queu
   const w = await jf('/api/admin/waiters', { method: 'POST', token: admin, body: { name: 'Berta' } });
   assert.equal(w.status, 200);
   assert.equal(w.json.status, 'pending');
-  const claimToken = w.json.link.split('/w/')[1];
+  const claimToken = new URL(w.json.link).searchParams.get('c');
 
   // first claim succeeds, second fails (single-use)
   const claim1 = await jf('/api/waiters/claim', { method: 'POST', body: { claimToken } });
@@ -119,7 +119,7 @@ test('full order lifecycle: create waiter, single-use claim, order, station queu
 test('revoked waiter token is rejected', async () => {
   const admin = (await jf('/api/login', { method: 'POST', body: { password: 'admin-pw' } })).json.token;
   const w = (await jf('/api/admin/waiters', { method: 'POST', token: admin, body: { name: 'Cilli' } })).json;
-  const claimToken = w.link.split('/w/')[1];
+  const claimToken = new URL(w.link).searchParams.get('c');
   const sess = (await jf('/api/waiters/claim', { method: 'POST', body: { claimToken } })).json.sessionToken;
   assert.equal((await jf('/api/me', { token: sess })).status, 200);
   await jf(`/api/admin/waiters/${w.id}/revoke`, { method: 'POST', token: admin });
@@ -137,4 +137,35 @@ test('security headers are present', async () => {
   assert.match(res.headers.get('content-security-policy'), /default-src 'self'/);
   assert.equal(res.headers.get('x-frame-options'), 'DENY');
   assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+});
+
+test('waiter link uses the static ?c= form (works on GitHub Pages)', async () => {
+  const admin = (await jf('/api/login', { method: 'POST', body: { password: 'admin-pw' } })).json.token;
+  const w = (await jf('/api/admin/waiters', { method: 'POST', token: admin, body: { name: 'Dora' } })).json;
+  const url = new URL(w.link);
+  assert.equal(url.pathname.endsWith('/waiter.html'), true);
+  assert.ok(url.searchParams.get('c'), 'link must carry the claim token as ?c=');
+});
+
+test('CORS allows cross-origin browser requests with Authorization', async () => {
+  // default CORS_ORIGIN is "*" in this test process -> any origin echoed back
+  const res = await fetch(base + '/api/config', { headers: { Origin: 'https://example.github.io' } });
+  assert.equal(res.headers.get('access-control-allow-origin'), 'https://example.github.io');
+  // preflight
+  const pre = await fetch(base + '/api/orders', {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'https://example.github.io',
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'authorization',
+    },
+  });
+  assert.equal(pre.status, 204);
+  assert.match(pre.headers.get('access-control-allow-headers'), /Authorization/i);
+});
+
+test('backend /w/:token redirects to the static claim URL', async () => {
+  const res = await fetch(base + '/w/sometoken', { redirect: 'manual' });
+  assert.equal(res.status, 302);
+  assert.match(res.headers.get('location'), /\/waiter\.html\?c=sometoken/);
 });

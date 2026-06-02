@@ -23,7 +23,7 @@ const nav = el('header', { class: 'topbar' },
   el('h1', {}, 'OrderFlow · ' + t('admin')),
   el('button', {
     class: 'btn-sm btn-ghost', style: 'color:#fff',
-    onclick: () => { tokens.clearAdmin(); location.href = '/'; },
+    onclick: () => { tokens.clearAdmin(); location.href = 'index.html'; },
   }, t('logout'))
 );
 const tabBar = el('div', { class: 'row wrap', style: 'padding:.6rem 1rem;gap:.4rem;position:sticky;top:0;background:var(--bg);z-index:5' },
