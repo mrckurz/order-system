@@ -2,10 +2,83 @@ import crypto from 'node:crypto';
 import db from './db.js';
 import config from './config.js';
 
-// ---- Staff sessions (stateless, HMAC-signed token) ----
-// Two roles: "admin" (full control — only the organizer) and "station"
-// (Bar/Kitchen displays only). Token: base64url(payloadJSON).hexHMAC
+// ============================================================================
+// Password hashing (scrypt, dependency-free). Format: scrypt$<saltHex>$<hashHex>
+// ============================================================================
+export function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(String(password), salt, 64);
+  return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
+}
 
+export function verifyPassword(password, stored) {
+  try {
+    const [scheme, saltHex, hashHex] = String(stored).split('$');
+    if (scheme !== 'scrypt') return false;
+    const expected = Buffer.from(hashHex, 'hex');
+    const actual = crypto.scryptSync(String(password), Buffer.from(saltHex, 'hex'), expected.length);
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
+}
+
+// ============================================================================
+// Accounts (admins + station logins), stored in the DB and managed in the UI
+// ============================================================================
+export function createAccount({ username, password, role = 'admin' }) {
+  const uname = String(username || '').trim();
+  if (!uname) throw Object.assign(new Error('username_required'), { status: 400 });
+  if (!password || String(password).length < 4)
+    throw Object.assign(new Error('password_too_short'), { status: 400 });
+  if (!['admin', 'station'].includes(role))
+    throw Object.assign(new Error('invalid_role'), { status: 400 });
+  try {
+    const info = db
+      .prepare('INSERT INTO accounts (username, password_hash, role, active, created_at) VALUES (?, ?, ?, 1, ?)')
+      .run(uname, hashPassword(password), role, Date.now());
+    return info.lastInsertRowid;
+  } catch (e) {
+    if (String(e.message).includes('UNIQUE')) throw Object.assign(new Error('username_taken'), { status: 409 });
+    throw e;
+  }
+}
+
+export function getAccountById(id) {
+  return db.prepare('SELECT * FROM accounts WHERE id = ?').get(id);
+}
+
+export function verifyAccount(username, password) {
+  const acc = db.prepare('SELECT * FROM accounts WHERE username = ? COLLATE NOCASE').get(String(username || '').trim());
+  if (!acc || !acc.active) return null;
+  if (!verifyPassword(password, acc.password_hash)) return null;
+  return acc;
+}
+
+export function countActiveAdmins(excludeId = null) {
+  return db
+    .prepare("SELECT COUNT(*) n FROM accounts WHERE role = 'admin' AND active = 1 AND id != ?")
+    .get(excludeId ?? -1).n;
+}
+
+// Create the first admin (and optional station) from env on a fresh database.
+export function ensureBootstrapAccounts() {
+  const count = db.prepare('SELECT COUNT(*) n FROM accounts').get().n;
+  if (count > 0) return;
+  createAccount({ username: config.adminUsername, password: config.adminPassword, role: 'admin' });
+  console.log(`Created bootstrap admin "${config.adminUsername}".`);
+  if (config.stationPassword) {
+    createAccount({ username: config.stationUsername, password: config.stationPassword, role: 'station' });
+    console.log(`Created bootstrap station account "${config.stationUsername}".`);
+  }
+  if (config.adminPassword === 'changeme') {
+    console.warn('  ⚠  bootstrap admin password is "changeme" — log in and change it immediately!');
+  }
+}
+
+// ============================================================================
+// Stateless session tokens (HMAC-SHA256 signed). Payload carries uid + role.
+// ============================================================================
 function sign(payload) {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const mac = crypto.createHmac('sha256', config.sessionSecret).update(body).digest('hex');
@@ -27,38 +100,33 @@ function verify(token) {
   }
 }
 
-function safeEqual(a, b) {
-  const ab = Buffer.from(String(a || ''));
-  const bb = Buffer.from(String(b || ''));
-  if (ab.length !== bb.length) return false;
-  return crypto.timingSafeEqual(ab, bb);
+export function createSessionToken(account, ttlHours = 12) {
+  return sign({ uid: account.id, role: account.role, exp: Date.now() + ttlHours * 3600_000 });
 }
 
-// Returns the role for a given password, or null. Admin password wins.
-export function roleForPassword(password) {
-  if (safeEqual(password, config.adminPassword)) return 'admin';
-  if (config.stationPassword && safeEqual(password, config.stationPassword)) return 'station';
-  return null;
+// Resolve a session token to a live, still-active account (so deactivating an
+// account takes effect immediately, not just at token expiry).
+function staffFromToken(token) {
+  const payload = verify(token);
+  if (!payload?.uid) return null;
+  const acc = getAccountById(payload.uid);
+  if (!acc || !acc.active) return null;
+  return acc;
 }
 
-export function createStaffToken(role, ttlHours = 12) {
-  return sign({ role, exp: Date.now() + ttlHours * 3600_000 });
-}
-
-// ---- Waiter tokens ----
+// ============================================================================
+// Waiter tokens (single-use, device-bound links)
+// ============================================================================
 export function newToken() {
   return crypto.randomBytes(24).toString('base64url');
 }
 
-// Claim a single-use link: binds the waiter to the first device and returns a
-// session token. Subsequent claims of the same link fail.
 export function claimWaiterLink(claimToken) {
   const w = db.prepare('SELECT * FROM waiters WHERE claim_token = ?').get(claimToken);
   if (!w) return { error: 'invalid_link' };
   if (!w.active) return { error: 'revoked' };
   if (Date.now() > w.expires_at) return { error: 'expired' };
   if (w.session_token) return { error: 'already_claimed' };
-
   const sessionToken = newToken();
   db.prepare('UPDATE waiters SET session_token = ?, claimed_at = ? WHERE id = ?').run(
     sessionToken,
@@ -75,7 +143,9 @@ export function getWaiterBySession(sessionToken) {
   return w;
 }
 
-// ---- Express helpers ----
+// ============================================================================
+// Express middleware
+// ============================================================================
 function bearer(req) {
   const h = req.headers.authorization || '';
   if (h.startsWith('Bearer ')) return h.slice(7);
@@ -83,19 +153,18 @@ function bearer(req) {
 }
 
 export function requireAdmin(req, res, next) {
-  const payload = verify(bearer(req));
-  if (!payload || payload.role !== 'admin') return res.status(401).json({ error: 'unauthorized' });
-  req.staff = payload;
+  const acc = staffFromToken(bearer(req));
+  if (!acc || acc.role !== 'admin') return res.status(401).json({ error: 'unauthorized' });
+  req.staff = acc;
   next();
 }
 
-// Admin OR station — used for the Bar/Kitchen displays.
 export function requireStaff(req, res, next) {
-  const payload = verify(bearer(req));
-  if (!payload || !['admin', 'station'].includes(payload.role)) {
+  const acc = staffFromToken(bearer(req));
+  if (!acc || !['admin', 'station'].includes(acc.role)) {
     return res.status(401).json({ error: 'unauthorized' });
   }
-  req.staff = payload;
+  req.staff = acc;
   next();
 }
 
@@ -108,17 +177,20 @@ export function requireWaiter(req, res, next) {
 
 // Used by Socket.IO handshake.
 export function authForSocket(token) {
-  const staff = verify(token);
-  if (staff && ['admin', 'station'].includes(staff.role)) return { role: staff.role };
+  const acc = staffFromToken(token);
+  if (acc) return { role: acc.role };
   const waiter = getWaiterBySession(token);
   if (waiter) return { role: 'waiter', waiter };
   return null;
 }
 
-// ---- Simple in-memory rate limiter (per IP + bucket) ----
+// ============================================================================
+// Simple in-memory rate limiter (per IP + bucket)
+// ============================================================================
 const buckets = new Map();
 export function rateLimit({ bucket, max, windowMs }) {
   return (req, res, next) => {
+    if (process.env.DISABLE_RATE_LIMIT === '1') return next();
     const key = `${bucket}:${req.ip}`;
     const now = Date.now();
     const entry = buckets.get(key) || { count: 0, reset: now + windowMs };
@@ -128,9 +200,7 @@ export function rateLimit({ bucket, max, windowMs }) {
     }
     entry.count += 1;
     buckets.set(key, entry);
-    if (entry.count > max) {
-      return res.status(429).json({ error: 'too_many_requests' });
-    }
+    if (entry.count > max) return res.status(429).json({ error: 'too_many_requests' });
     next();
   };
 }

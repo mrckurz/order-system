@@ -9,9 +9,13 @@ OrderFlow is designed to run on a **trusted local network** (the event WiFi), no
 exposed directly to the public internet. Within that network it nonetheless
 defends against unauthorized order manipulation:
 
-- **Two separate staff credentials.**
-  - `ADMIN_PASSWORD` unlocks the full Admin screen (menu, waiters, *all orders*) — intended for the organizer only.
-  - `STATION_PASSWORD` unlocks only the Bar/Kitchen displays for helpers. Station staff **cannot** view or use the admin overview.
+- **Account-based logins with roles.** Staff log in with a username + password
+  (passwords hashed with scrypt, never stored in plaintext). Two roles:
+  - **admin** — full Admin screen (menu, waiters, *all orders*, and managing other
+    accounts). The first admin is bootstrapped from `ADMIN_USERNAME`/`ADMIN_PASSWORD`.
+  - **station** — Bar/Kitchen displays only; **cannot** view or use the admin overview.
+  - The last active admin cannot be deleted or demoted, so you can't lock yourself out.
+  - Deactivating an account takes effect immediately (sessions are re-checked per request).
 - **Single-use, device-bound waiter links.** A waiter link can be *claimed* exactly
   once. The first device to open it receives a private session token; the link is
   then dead and cannot be reused or shared. Lost a phone? The admin issues a fresh

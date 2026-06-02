@@ -34,6 +34,15 @@ db.exec(`
     sort        INTEGER NOT NULL DEFAULT 0
   );
 
+  CREATE TABLE IF NOT EXISTS accounts (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL DEFAULT 'admin',  -- 'admin' or 'station'
+    active        INTEGER NOT NULL DEFAULT 1,
+    created_at    INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS waiters (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     name          TEXT NOT NULL,

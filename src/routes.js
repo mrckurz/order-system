@@ -5,8 +5,12 @@ import {
   requireAdmin,
   requireStaff,
   requireWaiter,
-  roleForPassword,
-  createStaffToken,
+  verifyAccount,
+  createAccount,
+  getAccountById,
+  countActiveAdmins,
+  hashPassword,
+  createSessionToken,
   claimWaiterLink,
   newToken,
   rateLimit,
@@ -19,6 +23,7 @@ import {
   reprintOrder,
   listOrders,
 } from './orders.js';
+import { emitReset } from './realtime.js';
 
 const router = express.Router();
 
@@ -51,18 +56,19 @@ router.get('/config', (req, res) => {
     lang: config.defaultLang,
     currency: config.currency,
     stations: getStations(),
-    stationLoginSeparate: !!config.stationPassword,
   });
 });
 
-// ---------- staff login (admin or station) ----------
+// ---------- staff login (username + password; role from the account) ----------
 router.post('/login', rateLimit({ bucket: 'login', max: 10, windowMs: 60_000 }), (req, res) => {
-  const role = roleForPassword(req.body?.password);
-  if (!role) return res.status(401).json({ error: 'wrong_password' });
-  res.json({ token: createStaffToken(role), role });
+  const acc = verifyAccount(req.body?.username, req.body?.password);
+  if (!acc) return res.status(401).json({ error: 'wrong_credentials' });
+  res.json({ token: createSessionToken(acc), role: acc.role, username: acc.username });
 });
 
-router.get('/whoami', requireStaff, (req, res) => res.json({ role: req.staff.role }));
+router.get('/whoami', requireStaff, (req, res) =>
+  res.json({ role: req.staff.role, username: req.staff.username, uid: req.staff.id })
+);
 
 // ---------- waiter: claim a single-use link ----------
 router.post(
@@ -219,9 +225,83 @@ router.delete('/admin/waiters/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- admin: accounts (admins + station logins) ----------
+function publicAccount(a) {
+  return { id: a.id, username: a.username, role: a.role, active: !!a.active, created_at: a.created_at };
+}
+
+router.get('/admin/accounts', requireAdmin, (req, res) => {
+  const rows = db.prepare('SELECT * FROM accounts ORDER BY role, username').all();
+  res.json(rows.map(publicAccount));
+});
+
+router.post('/admin/accounts', requireAdmin, (req, res) => {
+  const { username, password, role = 'admin' } = req.body || {};
+  const id = createAccount({ username, password, role });
+  res.status(201).json(publicAccount(getAccountById(id)));
+});
+
+router.patch('/admin/accounts/:id', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  const acc = getAccountById(id);
+  if (!acc) return res.status(404).json({ error: 'not_found' });
+  const b = req.body || {};
+
+  // Guard: never lock everyone out by demoting/deactivating the last admin.
+  const willBeInactiveAdmin =
+    acc.role === 'admin' && (b.active === 0 || b.active === false || (b.role && b.role !== 'admin'));
+  if (willBeInactiveAdmin && countActiveAdmins(id) === 0) {
+    return res.status(400).json({ error: 'last_admin' });
+  }
+  if (b.role && !['admin', 'station'].includes(b.role)) {
+    return res.status(400).json({ error: 'invalid_role' });
+  }
+
+  const username = b.username !== undefined ? String(b.username).trim() || acc.username : acc.username;
+  const role = b.role ?? acc.role;
+  const active = b.active === undefined ? acc.active : b.active ? 1 : 0;
+  try {
+    db.prepare('UPDATE accounts SET username = ?, role = ?, active = ? WHERE id = ?').run(
+      username, role, active, id
+    );
+  } catch (e) {
+    if (String(e.message).includes('UNIQUE')) return res.status(409).json({ error: 'username_taken' });
+    throw e;
+  }
+  if (b.password) {
+    if (String(b.password).length < 4) return res.status(400).json({ error: 'password_too_short' });
+    db.prepare('UPDATE accounts SET password_hash = ? WHERE id = ?').run(hashPassword(b.password), id);
+  }
+  res.json(publicAccount(getAccountById(id)));
+});
+
+router.delete('/admin/accounts/:id', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  const acc = getAccountById(id);
+  if (!acc) return res.status(404).json({ error: 'not_found' });
+  if (id === req.staff.id) return res.status(400).json({ error: 'cannot_delete_self' });
+  if (acc.role === 'admin' && countActiveAdmins(id) === 0) {
+    return res.status(400).json({ error: 'last_admin' });
+  }
+  db.prepare('DELETE FROM accounts WHERE id = ?').run(id);
+  res.json({ ok: true });
+});
+
 // ---------- admin: orders overview (admin only) ----------
 router.get('/admin/orders', requireAdmin, (req, res) => {
   res.json(listOrders({ limit: Number(req.query.limit) || 200 }));
+});
+
+// ---------- admin: reset event data (for testing before going live) ----------
+router.post('/admin/reset', requireAdmin, (req, res) => {
+  const alsoWaiters = !!req.body?.waiters;
+  const tx = db.transaction(() => {
+    db.exec('DELETE FROM order_items; DELETE FROM orders;');
+    if (alsoWaiters) db.exec('DELETE FROM waiters;');
+  });
+  tx();
+  emitReset();
+  res.json({ ok: true, waiters: alsoWaiters });
 });
 
 // ---------- stations (bar / kitchen) — admin or station ----------

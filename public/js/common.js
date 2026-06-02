@@ -17,6 +17,14 @@ export const STR = {
     invalidLink: 'Dieser Link ist ungültig oder abgelaufen. Bitte den Admin kontaktieren.',
     connecting: 'Verbinde…', noOpen: 'Keine offenen Bestellungen', waiterName: 'Kellner',
     qty: 'Anz.', print: 'Druck', share: 'Teilen', allDone: 'Alles erledigt',
+    username: 'Benutzername', wrongCredentials: 'Benutzername oder Passwort falsch',
+    team: 'Team', addAccount: 'Konto hinzufügen', role: 'Rolle',
+    roleAdmin: 'Admin', roleStation: 'Schank/Küche', newPassword: 'Neues Passwort',
+    deactivate: 'Deaktivieren', you: 'du', lastAdminError: 'Der letzte aktive Admin kann nicht entfernt werden.',
+    dangerZone: 'Daten zurücksetzen', resetOrders: 'Bestellungen löschen',
+    resetOrdersWaiters: 'Bestellungen + Kellner löschen',
+    resetConfirm: 'Wirklich alle Bestellungen unwiderruflich löschen?',
+    resetDone: 'Zurückgesetzt', changePw: 'Passwort ändern',
   },
   en: {
     appName: 'OrderFlow',
@@ -34,6 +42,14 @@ export const STR = {
     invalidLink: 'This link is invalid or expired. Please contact the admin.',
     connecting: 'Connecting…', noOpen: 'No open orders', waiterName: 'Waiter',
     qty: 'Qty', print: 'Print', share: 'Share', allDone: 'All done',
+    username: 'Username', wrongCredentials: 'Wrong username or password',
+    team: 'Team', addAccount: 'Add account', role: 'Role',
+    roleAdmin: 'Admin', roleStation: 'Bar/Kitchen', newPassword: 'New password',
+    deactivate: 'Deactivate', you: 'you', lastAdminError: 'You cannot remove the last active admin.',
+    dangerZone: 'Reset data', resetOrders: 'Delete orders',
+    resetOrdersWaiters: 'Delete orders + waiters',
+    resetConfirm: 'Really delete all orders permanently?',
+    resetDone: 'Reset done', changePw: 'Change password',
   },
 };
 
@@ -156,30 +172,32 @@ export async function ensureStaff({ minRole = 'station', title = 'Login' } = {})
   return new Promise((resolve) => {
     document.body.innerHTML = '';
     const err = el('p', { class: 'muted' });
-    const input = el('input', { type: 'password', placeholder: t('password'), autocomplete: 'current-password' });
+    const userI = el('input', { placeholder: t('username'), autocomplete: 'username', autocapitalize: 'none' });
+    const passI = el('input', { type: 'password', placeholder: t('password'), autocomplete: 'current-password' });
     const submit = async () => {
       err.textContent = '';
       try {
-        const r = await api('/login', { method: 'POST', body: { password: input.value } });
+        const r = await api('/login', { method: 'POST', body: { username: userI.value.trim(), password: passI.value } });
         if (minRole === 'admin' && r.role !== 'admin') {
-          err.textContent = t('wrongPassword');
+          err.textContent = t('wrongCredentials');
           return;
         }
         tokens.setAdmin(r.token);
         document.body.innerHTML = '';
-        resolve({ token: r.token, role: r.role });
+        resolve({ token: r.token, role: r.role, username: r.username });
       } catch {
-        err.textContent = t('wrongPassword');
+        err.textContent = t('wrongCredentials');
       }
     };
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    passI.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
     const box = el('div', { class: 'login-box card' },
       el('h2', {}, title),
-      el('label', {}, t('password')), input, err,
+      el('label', {}, t('username')), userI,
+      el('label', {}, t('password')), passI, err,
       el('button', { class: 'btn-primary btn-block', onclick: submit }, t('login'))
     );
     document.body.append(el('div', { class: 'center-screen' }, box));
-    input.focus();
+    userI.focus();
   });
 }
 

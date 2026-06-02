@@ -52,6 +52,12 @@ export function emitOrderUpdate(payload) {
   io.to('staff').emit('order:update', payload);
 }
 
+// Tell all staff screens to reload after an event-data reset.
+export function emitReset() {
+  if (!io) return;
+  io.to('staff').emit('order:update', { reset: true });
+}
+
 export function getIo() {
   return io;
 }

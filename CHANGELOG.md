@@ -7,6 +7,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Account-based authentication**: log in with username + password (scrypt-hashed).
+  - Multiple **admin** and **station** accounts, managed in the new Admin → **Team** screen
+    (create, rename, change password, deactivate, delete).
+  - The last active admin cannot be deleted or demoted; deactivation takes effect immediately.
+  - First admin bootstrapped from `ADMIN_USERNAME`/`ADMIN_PASSWORD` on a fresh database.
+- **Event-data reset** (Admin → Team → danger zone): clear orders (optionally waiters) to
+  test before going live, keeping menu and accounts.
+- **Single-server deployment** with automatic HTTPS: `docker-compose.yml` + `Caddyfile`
+  (Let's Encrypt), `.env.server.example`, and a full Hetzner/VPS runbook in `docs/DEPLOYMENT.md`.
+
+### Changed
+- Login is now username + password (was a single shared password); `STATION_PASSWORD`
+  is only used to bootstrap an optional station account on first start.
+
 - **Hybrid deployment**: host the PWA on GitHub Pages and the API in the cloud.
   - Configurable API base + vendored Socket.IO client (`public/config.js`, build-injected).
   - `scripts/build-pages.js` + "Deploy PWA to GitHub Pages" workflow (CSP meta, `.nojekyll`, `404.html`).

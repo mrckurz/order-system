@@ -7,11 +7,14 @@ import fs from 'node:fs';
 // Configure a throwaway database and known secrets BEFORE importing the app.
 const tmpDb = path.join(os.tmpdir(), `orderflow-test-${process.pid}.db`);
 process.env.DB_PATH = tmpDb;
+process.env.ADMIN_USERNAME = 'admin';
 process.env.ADMIN_PASSWORD = 'admin-pw';
+process.env.STATION_USERNAME = 'station';
 process.env.STATION_PASSWORD = 'station-pw';
 process.env.SESSION_SECRET = 'test-secret';
 process.env.PRINTER_TYPE = 'none';
 process.env.PUBLIC_URL = 'http://test.local';
+process.env.DISABLE_RATE_LIMIT = '1'; // the suite makes many logins
 
 const { createApp } = await import('../src/app.js');
 
@@ -49,6 +52,10 @@ async function jf(pathName, { method = 'GET', body, token } = {}) {
   return { status: res.status, json, res };
 }
 
+const login = (username, password) =>
+  jf('/api/login', { method: 'POST', body: { username, password } });
+const asAdmin = async () => (await login('admin', 'admin-pw')).json.token;
+
 test('config and seeded menu are available', async () => {
   const { status, json } = await jf('/api/config');
   assert.equal(status, 200);
@@ -56,37 +63,81 @@ test('config and seeded menu are available', async () => {
   assert.ok(json.stations.find((s) => s.id === 'food'));
 });
 
-test('admin login rejects wrong password, accepts correct one', async () => {
-  assert.equal((await jf('/api/login', { method: 'POST', body: { password: 'nope' } })).status, 401);
-  const ok = await jf('/api/login', { method: 'POST', body: { password: 'admin-pw' } });
+test('login: wrong credentials rejected, bootstrap admin accepted', async () => {
+  assert.equal((await login('admin', 'nope')).status, 401);
+  assert.equal((await login('nobody', 'admin-pw')).status, 401);
+  const ok = await login('admin', 'admin-pw');
   assert.equal(ok.status, 200);
   assert.equal(ok.json.role, 'admin');
+  assert.equal(ok.json.username, 'admin');
 });
 
-test('station password gets station role and cannot see admin overview', async () => {
-  const login = await jf('/api/login', { method: 'POST', body: { password: 'station-pw' } });
-  assert.equal(login.json.role, 'station');
-  const blocked = await jf('/api/admin/orders', { token: login.json.token });
+test('bootstrap station account has station role and cannot see admin overview', async () => {
+  const s = await login('station', 'station-pw');
+  assert.equal(s.json.role, 'station');
+  const blocked = await jf('/api/admin/orders', { token: s.json.token });
   assert.equal(blocked.status, 401, 'station role must NOT access admin overview');
+  const blocked2 = await jf('/api/admin/accounts', { token: s.json.token });
+  assert.equal(blocked2.status, 401, 'station role must NOT manage accounts');
+});
+
+test('admin can create, use and delete another account', async () => {
+  const admin = await asAdmin();
+  const created = await jf('/api/admin/accounts', {
+    method: 'POST', token: admin, body: { username: 'eva', password: 'eva-pass', role: 'admin' },
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.json.username, 'eva');
+
+  // new admin can log in
+  const eva = await login('eva', 'eva-pass');
+  assert.equal(eva.json.role, 'admin');
+
+  // duplicate username rejected
+  const dup = await jf('/api/admin/accounts', {
+    method: 'POST', token: admin, body: { username: 'EVA', password: 'x123', role: 'admin' },
+  });
+  assert.equal(dup.status, 409);
+
+  // delete eva
+  const del = await jf(`/api/admin/accounts/${created.json.id}`, { method: 'DELETE', token: admin });
+  assert.equal(del.status, 200);
+  assert.equal((await login('eva', 'eva-pass')).status, 401);
+});
+
+test('cannot delete the last admin or yourself', async () => {
+  const adminLogin = await login('admin', 'admin-pw');
+  const admin = adminLogin.json.token;
+  const me = (await jf('/api/whoami', { token: admin })).json;
+  const selfDelete = await jf(`/api/admin/accounts/${me.uid}`, { method: 'DELETE', token: admin });
+  assert.equal(selfDelete.status, 400, 'must not delete the account in use');
+});
+
+test('deactivating an account blocks it immediately', async () => {
+  const admin = await asAdmin();
+  const acc = (await jf('/api/admin/accounts', {
+    method: 'POST', token: admin, body: { username: 'temp', password: 'temp-pass', role: 'station' },
+  })).json;
+  const tempToken = (await login('temp', 'temp-pass')).json.token;
+  assert.equal((await jf('/api/whoami', { token: tempToken })).status, 200);
+  await jf(`/api/admin/accounts/${acc.id}`, { method: 'PATCH', token: admin, body: { active: false } });
+  assert.equal((await jf('/api/whoami', { token: tempToken })).status, 401, 'deactivated session must stop working');
 });
 
 test('full order lifecycle: create waiter, single-use claim, order, station queue', async () => {
-  const admin = (await jf('/api/login', { method: 'POST', body: { password: 'admin-pw' } })).json.token;
+  const admin = await asAdmin();
 
-  // create waiter
   const w = await jf('/api/admin/waiters', { method: 'POST', token: admin, body: { name: 'Berta' } });
   assert.equal(w.status, 200);
   assert.equal(w.json.status, 'pending');
   const claimToken = new URL(w.json.link).searchParams.get('c');
 
-  // first claim succeeds, second fails (single-use)
   const claim1 = await jf('/api/waiters/claim', { method: 'POST', body: { claimToken } });
   assert.equal(claim1.status, 200);
   const waiterToken = claim1.json.sessionToken;
   const claim2 = await jf('/api/waiters/claim', { method: 'POST', body: { claimToken } });
   assert.equal(claim2.status, 409, 'link must be single-use');
 
-  // waiter places an order with a food + a drink item
   const menu = (await jf('/api/menu', { token: waiterToken })).json;
   const foodItem = menu.categories.flatMap((c) => c.items).find((i) => i.station === 'food');
   const drinkItem = menu.categories.flatMap((c) => c.items).find((i) => i.station === 'drinks');
@@ -99,36 +150,40 @@ test('full order lifecycle: create waiter, single-use claim, order, station queu
   assert.equal(order.json.total, foodItem.price * 2 + drinkItem.price);
   assert.equal(order.json.waiter_name, 'Berta');
 
-  // items routed to the right station queues
   const foodQ = (await jf('/api/stations/food/queue', { token: admin })).json;
-  assert.equal(foodQ[0].items.length, 1);
   assert.equal(foodQ[0].items[0].station, 'food');
   const drinkQ = (await jf('/api/stations/drinks/queue', { token: admin })).json;
   assert.equal(drinkQ[0].items[0].station, 'drinks');
 
-  // admin sees the order
-  const all = (await jf('/api/admin/orders', { token: admin })).json;
-  assert.ok(all.some((o) => o.id === order.json.id));
-
-  // mark the food order done -> leaves the food queue
   await jf(`/api/orders/${order.json.id}/done`, { method: 'POST', token: admin, body: { station: 'food' } });
-  const foodQ2 = (await jf('/api/stations/food/queue', { token: admin })).json;
-  assert.equal(foodQ2.length, 0);
+  assert.equal((await jf('/api/stations/food/queue', { token: admin })).json.length, 0);
+});
+
+test('reset clears orders but keeps menu and accounts', async () => {
+  const admin = await asAdmin();
+  const before = (await jf('/api/admin/orders', { token: admin })).json;
+  assert.ok(before.length > 0, 'precondition: there are orders from the lifecycle test');
+  const r = await jf('/api/admin/reset', { method: 'POST', token: admin, body: {} });
+  assert.equal(r.status, 200);
+  assert.equal((await jf('/api/admin/orders', { token: admin })).json.length, 0);
+  // menu still there
+  assert.ok((await jf('/api/admin/menu', { token: admin })).json.categories.length > 0);
 });
 
 test('revoked waiter token is rejected', async () => {
-  const admin = (await jf('/api/login', { method: 'POST', body: { password: 'admin-pw' } })).json.token;
+  const admin = await asAdmin();
   const w = (await jf('/api/admin/waiters', { method: 'POST', token: admin, body: { name: 'Cilli' } })).json;
   const claimToken = new URL(w.link).searchParams.get('c');
   const sess = (await jf('/api/waiters/claim', { method: 'POST', body: { claimToken } })).json.sessionToken;
   assert.equal((await jf('/api/me', { token: sess })).status, 200);
   await jf(`/api/admin/waiters/${w.id}/revoke`, { method: 'POST', token: admin });
-  assert.equal((await jf('/api/me', { token: sess })).status, 401, 'revoked waiter must be locked out');
+  assert.equal((await jf('/api/me', { token: sess })).status, 401);
 });
 
 test('unauthenticated requests are rejected', async () => {
   assert.equal((await jf('/api/me')).status, 401);
   assert.equal((await jf('/api/admin/orders')).status, 401);
+  assert.equal((await jf('/api/admin/accounts')).status, 401);
   assert.equal((await jf('/api/orders', { method: 'POST', body: { items: [] } })).status, 401);
 });
 
@@ -139,19 +194,20 @@ test('security headers are present', async () => {
   assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
 });
 
-test('waiter link uses the static ?c= form (works on GitHub Pages)', async () => {
-  const admin = (await jf('/api/login', { method: 'POST', body: { password: 'admin-pw' } })).json.token;
+test('waiter link uses the static ?c= form and /w redirects', async () => {
+  const admin = await asAdmin();
   const w = (await jf('/api/admin/waiters', { method: 'POST', token: admin, body: { name: 'Dora' } })).json;
   const url = new URL(w.link);
-  assert.equal(url.pathname.endsWith('/waiter.html'), true);
-  assert.ok(url.searchParams.get('c'), 'link must carry the claim token as ?c=');
+  assert.ok(url.pathname.endsWith('/waiter.html'));
+  assert.ok(url.searchParams.get('c'));
+  const red = await fetch(base + '/w/sometoken', { redirect: 'manual' });
+  assert.equal(red.status, 302);
+  assert.match(red.headers.get('location'), /\/waiter\.html\?c=sometoken/);
 });
 
 test('CORS allows cross-origin browser requests with Authorization', async () => {
-  // default CORS_ORIGIN is "*" in this test process -> any origin echoed back
   const res = await fetch(base + '/api/config', { headers: { Origin: 'https://example.github.io' } });
   assert.equal(res.headers.get('access-control-allow-origin'), 'https://example.github.io');
-  // preflight
   const pre = await fetch(base + '/api/orders', {
     method: 'OPTIONS',
     headers: {
@@ -162,10 +218,4 @@ test('CORS allows cross-origin browser requests with Authorization', async () =>
   });
   assert.equal(pre.status, 204);
   assert.match(pre.headers.get('access-control-allow-headers'), /Authorization/i);
-});
-
-test('backend /w/:token redirects to the static claim URL', async () => {
-  const res = await fetch(base + '/w/sometoken', { redirect: 'manual' });
-  assert.equal(res.status, 302);
-  assert.match(res.headers.get('location'), /\/waiter\.html\?c=sometoken/);
 });

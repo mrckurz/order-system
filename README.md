@@ -44,8 +44,9 @@ It runs on **a single laptop on the local WiFi**. No cloud, no accounts, no subs
 - 🍺🍴 **Live station displays** for bar and kitchen, grouped by order and showing the waiter.
 - 🖨 **Thermal printer support** (ESC/POS over network) — kitchen tickets in arrival order, with a console/file fallback for testing.
 - ⚙️ **Configurable menu** — categories, articles, prices and stations editable from the Admin screen at runtime.
-- 👀 **Admin overview** of every order, protected by a password only you know.
-- 🔒 **Security-minded** — separate admin/station credentials, device-bound waiter sessions, rate-limited logins, hardened HTTP headers. See [SECURITY.md](SECURITY.md).
+- 👥 **Accounts & roles** — log in with username + password; create and manage **multiple admins** and **station logins** from the Admin → Team screen (you can't lock out the last admin).
+- 👀 **Admin overview** of every order; a one-click **reset** lets you test then start the event clean.
+- 🔒 **Security-minded** — hashed passwords (scrypt), role separation (admin vs station), device-bound single-use waiter links, rate-limited logins, hardened HTTP headers. See [SECURITY.md](SECURITY.md).
 - 🌍 **i18n** — ships with German and English; default language is configurable.
 - 🪶 **Tiny footprint** — SQLite file, a handful of dependencies, runs on a laptop or a Raspberry Pi.
 
@@ -66,10 +67,10 @@ Open <http://localhost:3000> and pick a screen:
 
 | Screen | URL | Who |
 | --- | --- | --- |
-| Admin | `/admin` | You — menu, waiters, all orders (needs `ADMIN_PASSWORD`) |
-| Bar | `/bar` | Bar staff — live drink orders (needs `STATION_PASSWORD`) |
-| Kitchen | `/kitchen` | Food counter — live food orders + auto-print |
-| Waiter | `/w/<link>` | Each waiter — created in Admin |
+| Admin | `/admin` | You — menu, waiters, all orders, **Team** (manage admins/stations). Log in with the bootstrap admin account |
+| Bar | `/bar` | Bar staff — live drink orders (station account) |
+| Kitchen | `/kitchen` | Food counter — live food orders + auto-print (station account) |
+| Waiter | `/w/<link>` | Each waiter — single-use link created in Admin |
 
 ## Running it at your event
 
@@ -87,10 +88,22 @@ OrderFlow is two parts — a **static PWA** (`public/`) and a **Node backend** (
 
 | Model | Frontend | Backend | Good for |
 | --- | --- | --- | --- |
-| **One server** | served by the backend | laptop / VPS / Raspberry Pi | the event itself; no CORS, works offline on LAN |
-| **Hybrid** | **GitHub Pages** (free HTTPS) | cloud (Render / Fly.io / any Docker host) | a public, always-on instance |
+| **Single server** *(recommended)* | served by the backend | one rented VPS (or laptop / Pi) | a real, always-on instance with HTTPS |
+| **Hybrid** | **GitHub Pages** (free HTTPS) | cloud (Render / Fly.io / any Docker host) | when you specifically want the static frontend on Pages |
 
-> ⚠️ **GitHub Pages can't run the backend** — it only hosts static files. In hybrid mode the API, database and websockets run on a cloud server, and the PWA is told its address at build time via the `ORDERFLOW_API_URL` Actions variable. Includes ready-made `Dockerfile`, `render.yaml`, `fly.toml` and a Pages deploy workflow.
+**Single-server (recommended):** one small server (e.g. Hetzner CX22, ~€4–5/mo) runs everything with automatic HTTPS via the included `docker-compose.yml` + `Caddyfile`:
+
+```bash
+# on an Ubuntu server with your domain's DNS pointing at it
+curl -fsSL https://get.docker.com | sh
+git clone https://github.com/mrckurz/order-system.git && cd order-system
+cp .env.server.example .env   # set DOMAIN, ADMIN_PASSWORD, SESSION_SECRET, …
+docker compose up -d --build
+```
+
+Your app is then live at `https://your-domain` with a free Let's Encrypt certificate. Full step-by-step runbook (server, DNS, first login, testing/reset, backups) in **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
+> ⚠️ **GitHub Pages can't run the backend** — it only hosts static files. The hybrid model keeps the API/database/websockets on a cloud server; ready-made `Dockerfile`, `render.yaml`, `fly.toml` and a Pages workflow are included.
 
 ## Configuration
 

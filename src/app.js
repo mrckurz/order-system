@@ -2,12 +2,14 @@ import path from 'node:path';
 import express from 'express';
 import config from './config.js';
 import { seed } from './seed.js';
+import { ensureBootstrapAccounts } from './auth.js';
 import api from './routes.js';
 
 // Build the Express app (without starting a listener or websockets).
 // Kept separate from server.js so tests can mount it on an ephemeral port.
 export function createApp({ runSeed = true } = {}) {
   if (runSeed) seed();
+  ensureBootstrapAccounts();
 
   const app = express();
   app.disable('x-powered-by');

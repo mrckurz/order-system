@@ -24,9 +24,13 @@ const config = {
     .map((s) => s.trim().replace(/\/$/, ''))
     .filter(Boolean),
 
+  // Bootstrap admin — created only on first start when no account exists yet.
+  // Afterwards manage all accounts in the Admin → Team screen.
+  adminUsername: process.env.ADMIN_USERNAME || 'admin',
   adminPassword: process.env.ADMIN_PASSWORD || 'changeme',
-  // Optional separate password for the Bar/Kitchen displays operated by helpers.
-  // Falls back to the admin password if unset (then everyone is "admin").
+  // Optional bootstrap station account (Bar/Kitchen helpers). Created on first
+  // start if STATION_PASSWORD is set.
+  stationUsername: process.env.STATION_USERNAME || 'station',
   stationPassword: process.env.STATION_PASSWORD || '',
   sessionSecret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
   waiterTokenTtlHours: Number(process.env.WAITER_TOKEN_TTL_HOURS) || 24,

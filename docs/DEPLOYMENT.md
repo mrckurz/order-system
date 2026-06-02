@@ -1,130 +1,144 @@
 # Deployment
 
-OrderFlow has two parts:
+OrderFlow is one Node app that serves **both** the PWA frontend and the API.
+The recommended production setup is a single small rented server with automatic
+HTTPS — no laptop, no GitHub Pages, no CORS.
 
-1. **The PWA frontend** (`public/`) — plain static files.
-2. **The backend API** (`src/`) — Node.js + Socket.IO + SQLite.
-
-You can run them **together** (one server serves both) or **split** (frontend on
-GitHub Pages, backend in the cloud). Pick the model that fits your event.
-
-> ⚠️ **GitHub Pages cannot run the backend.** Pages only hosts static files. The
-> API, database and websockets must run on a real server somewhere.
+- **[Option A — Self-hosted single server](#option-a--self-hosted-single-server-recommended)** ← recommended
+- [Option B — Hybrid: PWA on GitHub Pages + cloud API](#option-b--hybrid-pwa-on-github-pages--cloud-api)
 
 ---
 
-## Production checklist (read first)
+## Production checklist
 
-- [ ] Strong `ADMIN_PASSWORD` (only you) and `STATION_PASSWORD` (bar/kitchen helpers).
-- [ ] A fixed `SESSION_SECRET` (`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`).
-- [ ] Backend reachable over **HTTPS** (required for PWA install + secure password entry off-LAN).
-- [ ] `CORS_ORIGIN` set to your frontend origin (not `*`) in hybrid mode.
-- [ ] A **persistent volume** for the SQLite DB if you can't afford to lose orders on restart.
-- [ ] Backend not exposed beyond what you need; keep the admin device physically secure.
+- [ ] A small server (1–2 vCPU, 1–4 GB RAM is plenty).
+- [ ] A domain/subdomain with a DNS **A record** pointing at the server IP.
+- [ ] Strong bootstrap `ADMIN_PASSWORD` and a fixed `SESSION_SECRET`.
+- [ ] HTTPS (handled automatically by Caddy below).
+- [ ] A backup of `data/orderflow.db` after the event.
 
 ---
 
-## Option A — One server (simplest)
+## Option A — Self-hosted single server (recommended)
 
-Run the whole app on one machine (a laptop at the venue, a VPS, a Raspberry Pi).
-The backend serves the PWA too, so there is no CORS or cross-origin setup.
+This runs OrderFlow + Caddy (automatic Let's Encrypt HTTPS) via Docker Compose.
 
-```bash
-cp .env.example .env       # set ADMIN_PASSWORD, STATION_PASSWORD, SESSION_SECRET
-npm ci && npm run icons
-NODE_ENV=production npm start
+### 1. Rent a server
+
+**Hetzner Cloud** is a great fit (EU/GDPR, cheap, hourly billing):
+
+| Plan | Specs | ~Price | Notes |
+| --- | --- | --- | --- |
+| **CX22** *(recommended)* | 2 vCPU x86, 4 GB RAM, 40 GB SSD | ~€4–5/mo | safe, compatible default |
+| CAX11 *(budget)* | 2 vCPU ARM, 4 GB RAM, 40 GB SSD | ~€3.8/mo | works just as well |
+
+Create the server with **Ubuntu 24.04**, add your SSH key, pick a German region
+(Nuremberg/Falkenstein). You can destroy it after the event to stop paying.
+
+Other providers (Netcup, DigitalOcean, Vultr, …) work the same way — any host
+that runs Docker.
+
+### 2. Point your domain at it
+
+Register a domain (a few €/year) and create a DNS **A record**:
+
+```
+order.example.at.   A   <your-server-ip>
 ```
 
-Leave `FRONTEND_URL` empty and `CORS_ORIGIN=*`. Waiter links will use `PUBLIC_URL`.
-For a venue laptop, set `PUBLIC_URL=http://<lan-ip>:3000`. Use a process manager
-(`pm2`, `systemd`) to keep it running, and a reverse proxy (Caddy/Nginx) if you
-want HTTPS on a custom domain.
+Wait until `ping order.example.at` resolves to your server before continuing
+(DNS can take a few minutes).
 
----
+### 3. Install Docker on the server
 
-## Option B — Hybrid: PWA on GitHub Pages + backend in the cloud
-
-This is the setup the project is preconfigured for.
-
-### 1. Deploy the backend
-
-Use any host that runs a Node server or a Docker container. Two ready-made configs
-are included:
-
-**Render** (`render.yaml`)
-1. Push this repo to GitHub.
-2. On render.com → **New + → Blueprint** → pick the repo.
-3. Set `ADMIN_PASSWORD`, `STATION_PASSWORD`, `CORS_ORIGIN`, `FRONTEND_URL` in the dashboard.
-4. Note the service URL, e.g. `https://orderflow-api.onrender.com`.
-   > The free plan has an **ephemeral** disk. For a real event, enable the disk
-   > block in `render.yaml` (paid) or use Fly.io below.
-
-**Fly.io** (`fly.toml`, with a persistent volume)
 ```bash
-fly launch --no-deploy
-fly volumes create orderflow_data --size 1 --region fra
-fly secrets set ADMIN_PASSWORD=... STATION_PASSWORD=... \
-  SESSION_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))") \
-  CORS_ORIGIN=https://<user>.github.io \
-  FRONTEND_URL=https://<user>.github.io/order-system
-fly deploy
+ssh root@<your-server-ip>
+curl -fsSL https://get.docker.com | sh
 ```
 
-Any Docker host works too — the included `Dockerfile` listens on `$PORT` and stores
-the DB at `/data/orderflow.db` (mount a volume at `/data`).
+### 4. Deploy OrderFlow
 
-### 2. Point the backend at your frontend
+```bash
+git clone https://github.com/mrckurz/order-system.git
+cd order-system
+cp .env.server.example .env
+nano .env            # set DOMAIN, ACME_EMAIL, PUBLIC_URL, ADMIN_PASSWORD, SESSION_SECRET
+docker compose up -d --build
+```
 
-Set these env vars on the backend:
+That's it. Caddy fetches a TLS certificate automatically and your app is live at
+`https://order.example.at`. Check it:
 
-| Variable | Value |
-| --- | --- |
-| `CORS_ORIGIN` | `https://<user>.github.io` |
-| `FRONTEND_URL` | `https://<user>.github.io/order-system` |
+```bash
+docker compose ps
+docker compose logs -f app
+```
 
-`CORS_ORIGIN` is the **origin** (scheme + host) so the browser allows cross-origin
-API calls. `FRONTEND_URL` is the full app base used to build waiter links.
+### 5. First run
 
-### 3. Deploy the frontend to GitHub Pages
+1. Open `https://order.example.at/admin`, log in with the bootstrap
+   `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+2. Go to **Team** → change your password, add more **Admins** and **Bar/Kitchen
+   (station)** accounts as needed.
+3. Go to **Menu** → adjust articles/prices (seeded from last year by default).
+4. Open `/bar` and `/kitchen` on the station devices and log in with a station account.
+5. Go to **Waiters** → create one per helper and share each single-use link.
 
-1. In the repo: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-2. **Settings → Secrets and variables → Actions → Variables →** add a repository
-   **variable** `ORDERFLOW_API_URL` = your backend URL (e.g. `https://orderflow-api.onrender.com`).
-3. Push to `main` (or run the **"Deploy PWA to GitHub Pages"** workflow manually).
+### 6. Test before the event, then reset
 
-The workflow runs `npm run build:pages`, which:
-- writes `config.js` with your `apiBase`,
-- vendors the Socket.IO browser client locally,
-- injects a Content-Security-Policy that allows your API origin,
-- adds `.nojekyll` and a `404.html` fallback,
-- publishes `dist/` to Pages.
+You can test the whole flow on the live server. When you're ready to go live,
+open **Admin → Team → ⚠️ Reset data** and click **Delete orders** (optionally
+**+ waiters**) to start clean. Your menu and accounts stay intact.
 
-Your app is then at `https://<user>.github.io/order-system/`.
+### 7. Updates & backups
 
-### How admin access works in hybrid mode
+```bash
+# update to the latest version
+cd order-system && git pull && docker compose up -d --build
 
-The Admin screen is just `admin.html` on Pages, but the **password is verified by the
-backend**, never stored in the frontend. You open
-`https://<user>.github.io/order-system/admin.html`, enter `ADMIN_PASSWORD`, and the
-backend returns a short-lived signed token (HMAC, `SESSION_SECRET`). Bar/Kitchen
-helpers use the separate `STATION_PASSWORD` and **cannot** reach the admin overview.
-All of this rides on HTTPS (Pages + your HTTPS backend). Logins are rate-limited.
+# back up the database (orders, menu, accounts, waiters)
+docker compose cp app:/data/orderflow.db ./orderflow-backup.db
+```
+
+> The database lives in the `orderflow_data` Docker volume, so it survives
+> restarts and rebuilds.
+
+### Without Docker?
+
+You can also run it directly with Node ≥ 20 + a process manager (`pm2`/systemd)
+behind any reverse proxy that provides HTTPS. Set the same env vars from
+`.env.server.example` (minus the Caddy ones) and run `npm ci && npm start`.
 
 ---
 
-## Updating the menu / data
+## Option B — Hybrid: PWA on GitHub Pages + cloud API
 
-The menu seeds once from `config/default-menu.json`; after that, edit it live in
-**Admin → Menu**. To reset to the file: `npm run seed:reset` (wipes the menu).
-Back up `data/orderflow.db` after the event to keep your sales numbers.
+Use this only if you specifically want the frontend on GitHub Pages (free static
+hosting) and the backend elsewhere. The backend (Render/Fly/any Docker host) must
+set `CORS_ORIGIN` to your Pages origin and `FRONTEND_URL` to your Pages app URL;
+the Pages build is told the API address via the `ORDERFLOW_API_URL` Actions
+variable. See `render.yaml`, `fly.toml`, the Pages workflow, and `scripts/build-pages.js`.
+
+> ⚠️ GitHub Pages can only host static files — it cannot run the API/database/websockets.
+
+---
+
+## Accounts & roles
+
+- **admin** — full control: orders overview, menu, waiters, and the **Team**
+  screen (create/edit/disable other admins and station accounts).
+- **station** — Bar/Kitchen displays only; cannot open the admin overview.
+- **waiters** — no password; each opens a single-use, device-bound, expiring link.
+
+The first admin is created from `ADMIN_USERNAME`/`ADMIN_PASSWORD` on first start;
+everything after that is managed in the UI. You can never lock yourself out — the
+last active admin cannot be deleted or demoted.
 
 ## Troubleshooting
 
-- **CORS errors in the browser console** → `CORS_ORIGIN` doesn't match the Pages
-  origin exactly (scheme + host, no trailing slash, no path).
-- **Waiter link 404 on Pages** → make sure links use `…/waiter.html?c=<token>`
-  (they do automatically when `FRONTEND_URL` is set on the backend).
-- **Realtime not updating** → check the backend allows websockets and `CORS_ORIGIN`
-  includes your Pages origin; the screens still work with manual refresh as a fallback.
-- **Data disappeared after redeploy** → you're on an ephemeral filesystem; attach a
-  persistent volume and set `DB_PATH` to it.
+- **Certificate not issued** → DNS A record must point at the server and ports
+  80/443 must be open (Hetzner firewall/Cloud Firewall). Check `docker compose logs caddy`.
+- **Can't log in after restart** → set a fixed `SESSION_SECRET` (otherwise tokens
+  are invalidated on every restart).
+- **Forgot the admin password** → create a new admin via env on a fresh DB, or
+  reset it in SQLite; see the repo issues/discussions for help.
