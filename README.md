@@ -16,12 +16,12 @@ Waiters take orders on their own phones · the bar and kitchen see them live · 
 
 OrderFlow was originally built so a volunteer fire brigade could run the drinks-and-food stand at its summer festival without paper slips and shouting across the yard. It is **not fire-brigade specific** — any event with waiters, a bar and a food counter can use it: sports clubs, school fêtes, scout camps, street food markets, weddings.
 
-It can run on **a single laptop on the local WiFi** or on **a small rented server** with HTTPS. No SaaS, no subscription, no external/cloud accounts — the app and its data stay on your own machine.
+It's **self-hosted**: run it on a small server you control (a cheap VPS, or even a Raspberry Pi) with automatic HTTPS. No SaaS, no subscription, no external/cloud accounts — the app and its data stay yours.
 
 ## How it works
 
 ```
- Waiter phones (PWA)            One laptop on the festival WiFi              Stations
+ Waiter phones (PWA)              Your self-hosted server                   Stations
  ┌───────────────┐             ┌──────────────────────────────┐           ┌──────────────┐
  │  📱 Anna       │── order ───▶│  Node.js + SQLite            │── live ──▶│ 🍺 Bar iPad   │
  │  📱 Bernd      │             │  (Express + Socket.IO)       │           ├──────────────┤
@@ -43,12 +43,14 @@ It can run on **a single laptop on the local WiFi** or on **a small rented serve
 - 🔗 **Single-use waiter links** with an expiry — create them up front, hand them out, done.
 - 🍺🍴 **Live station displays** for bar and kitchen, grouped by order and showing the waiter.
 - 🖨 **Thermal printer support** (ESC/POS over network) — kitchen tickets in arrival order, with a console/file fallback for testing.
+- 🎪 **Multiple events/festivals** — each event keeps its **own menu, waiters and orders**, stored permanently. One event is "active"; start a new one for next year (optionally copying last year's menu).
+- 📊 **Statistics dashboard per event** — total revenue, orders, average order, revenue per waiter, products sold and a per-station breakdown, with **CSV export**.
 - ⚙️ **Configurable menu** — categories, articles, prices and stations editable from the Admin screen at runtime.
 - 👥 **Accounts & roles** — log in with username + password; create and manage **multiple admins** and **station logins** from the Admin → Team screen (you can't lock out the last admin).
 - 👀 **Admin overview** of every order; a one-click **reset** lets you test then start the event clean.
 - 🔒 **Security-minded** — hashed passwords (scrypt), role separation (admin vs station), device-bound single-use waiter links, rate-limited logins, hardened HTTP headers. See [SECURITY.md](SECURITY.md).
 - 🌍 **i18n** — ships with German and English; default language is configurable.
-- 🪶 **Tiny footprint** — SQLite file, a handful of dependencies, runs on a laptop or a Raspberry Pi.
+- 🪶 **Tiny footprint** — SQLite file, a handful of dependencies, runs happily even on a Raspberry Pi.
 
 ## Quick start
 
@@ -67,20 +69,24 @@ Open <http://localhost:3000> and pick a screen:
 
 | Screen | URL | Who |
 | --- | --- | --- |
-| Admin | `/admin` | You — menu, waiters, all orders, **Team** (manage admins/stations). Log in with the bootstrap admin account |
+| Admin | `/admin` | You — orders, **Statistik**, menu, waiters, **Team** (admins/stations) and **Feste** (events). Log in with the bootstrap admin account |
 | Bar | `/bar` | Bar staff — live drink orders (station account) |
 | Kitchen | `/kitchen` | Food counter — live food orders + auto-print (station account) |
 | Waiter | `/w/<link>` | Each waiter — single-use link created in Admin |
 
-## Running it at your event
+## Running your event
 
-1. Put a laptop on the same WiFi as everyone's phones and find its LAN IP (e.g. `192.168.0.10`).
-2. In `.env` set `PUBLIC_URL=http://192.168.0.10:3000` (this is what waiter links point to) and a strong `ADMIN_PASSWORD`.
-3. `npm start`. Open `/admin`, log in with `ADMIN_USERNAME` / `ADMIN_PASSWORD`, then in **Admin → Team** add station accounts (Bar/Kitchen) and any extra admins. Create your waiters and share each link (the **Share**/**Copy** buttons make this easy — paste into your group chat or show a QR code).
-4. Open `/bar` on the bar iPad and `/kitchen` on the kitchen device, then **Add to Home Screen** so they run full-screen.
-5. Waiters open their link once, **Add to Home Screen**, and they're ready.
+Once OrderFlow is deployed (see **Deployment** below), set everything up from the Admin screen at `https://your-domain/admin`:
 
-> 💡 **Tip:** keep the laptop awake and plugged in. All data lives in `data/orderflow.db` — back it up after the event if you want the numbers.
+1. Log in with the bootstrap admin account.
+2. In **Feste/Events**, name your event (e.g. *Summer Festival 2026*). It becomes the active event — menu, waiters and orders all live under it. Next year, create a new event and optionally copy this year's menu.
+3. In **Team**, change your password and add station accounts (Bar/Kitchen) plus any extra admins.
+4. In **Menu**, adjust articles and prices.
+5. In **Waiters**, create one per helper and share each single-use link (Share/Copy buttons — paste into your group chat or show a QR code).
+6. Open `/bar` and `/kitchen` on the station devices (log in with a station account) and **Add to Home Screen** for full-screen.
+7. Waiters open their link once, **Add to Home Screen**, and they're ready.
+
+> 💡 Test freely, then **Admin → Team → Reset** (or simply start a fresh event) to go live clean. After the event, review the numbers in **Statistik** and **export CSV** — the data stays stored under that event.
 
 ## Deployment options
 
@@ -88,7 +94,7 @@ OrderFlow is two parts — a **static PWA** (`public/`) and a **Node backend** (
 
 | Model | Frontend | Backend | Good for |
 | --- | --- | --- | --- |
-| **Single server** *(recommended)* | served by the backend | one rented VPS (or laptop / Pi) | a real, always-on instance with HTTPS |
+| **Single server** *(recommended)* | served by the backend | one small VPS (or a Raspberry Pi) | a real, always-on instance with HTTPS |
 | **Hybrid** | **GitHub Pages** (free HTTPS) | cloud (Render / Fly.io / any Docker host) | when you specifically want the static frontend on Pages |
 
 **Single-server (recommended):** one small server (e.g. Hetzner CX22, ~€4–5/mo) runs everything with automatic HTTPS via the included `docker-compose.yml` + `Caddyfile`:
@@ -136,13 +142,15 @@ Most network thermal printers (Epson TM-series and compatibles) speak ESC/POS on
 src/
   server.js     # HTTP server + websockets bootstrap
   app.js        # Express app factory (routes, security headers, static) — testable
-  routes.js     # REST API (config, login, accounts, waiters, menu, orders, stations, reset)
+  routes.js     # REST API (config, login, accounts, events, stats, waiters, menu, orders, stations)
   auth.js       # accounts (scrypt) + signed session tokens, single-use waiter claims, rate limiting
+  events.js     # events/festivals: active event, create/copy/activate/archive
+  stats.js      # per-event sales statistics + CSV export
   orders.js     # order creation, station queues, print triggering
   realtime.js   # Socket.IO rooms (staff vs. waiter)
   printer.js    # ESC/POS rendering + network/console/spool output
-  db.js         # SQLite schema (better-sqlite3)
-  seed.js       # seed default menu
+  db.js         # SQLite schema + migrations (better-sqlite3)
+  seed.js       # seed default menu into an event
   config.js     # env-based configuration
 public/          # the PWA (vanilla JS, no build step)
 config/          # default-menu.json
@@ -162,7 +170,7 @@ npm test        # run the integration test suite
 
 Contributions are very welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and the [good first issues](https://github.com/mrckurz/order-system/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22). By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-Ideas on the roadmap: QR-code rendering for waiter links, per-waiter / per-article sales reports, payment tracking, table-plan view, more languages.
+Ideas on the roadmap: QR-code rendering for waiter links, payment tracking, table-plan view, more languages, an offline order queue.
 
 ## License
 
