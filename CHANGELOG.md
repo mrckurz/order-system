@@ -7,6 +7,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Currency symbol (e.g. €) shown next to the editable price fields in the Admin → Menu editor.
 - **Account-based authentication**: log in with username + password (scrypt-hashed).
   - Multiple **admin** and **station** accounts, managed in the new Admin → **Team** screen
     (create, rename, change password, deactivate, delete).

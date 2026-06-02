@@ -16,7 +16,7 @@ Waiters take orders on their own phones · the bar and kitchen see them live · 
 
 OrderFlow was originally built so a volunteer fire brigade could run the drinks-and-food stand at its summer festival without paper slips and shouting across the yard. It is **not fire-brigade specific** — any event with waiters, a bar and a food counter can use it: sports clubs, school fêtes, scout camps, street food markets, weddings.
 
-It runs on **a single laptop on the local WiFi**. No cloud, no accounts, no subscription, no internet required during the event.
+It can run on **a single laptop on the local WiFi** or on **a small rented server** with HTTPS. No SaaS, no subscription, no external/cloud accounts — the app and its data stay on your own machine.
 
 ## How it works
 
@@ -58,7 +58,7 @@ Requirements: **Node.js ≥ 20**.
 git clone https://github.com/mrckurz/order-system.git
 cd order-system
 npm install
-cp .env.example .env        # then edit .env — at least set ADMIN_PASSWORD!
+cp .env.example .env        # then edit .env — at least set ADMIN_USERNAME / ADMIN_PASSWORD!
 npm run icons               # generate the PWA icons (placeholder branding)
 npm start
 ```
@@ -75,8 +75,8 @@ Open <http://localhost:3000> and pick a screen:
 ## Running it at your event
 
 1. Put a laptop on the same WiFi as everyone's phones and find its LAN IP (e.g. `192.168.0.10`).
-2. In `.env` set `PUBLIC_URL=http://192.168.0.10:3000` (this is what waiter links point to) and choose strong `ADMIN_PASSWORD` / `STATION_PASSWORD` values.
-3. `npm start`. Open `/admin` on your phone, create all your waiters and share each link (the **Share**/**Copy** buttons make this easy — paste into your group chat or show a QR code).
+2. In `.env` set `PUBLIC_URL=http://192.168.0.10:3000` (this is what waiter links point to) and a strong `ADMIN_PASSWORD`.
+3. `npm start`. Open `/admin`, log in with `ADMIN_USERNAME` / `ADMIN_PASSWORD`, then in **Admin → Team** add station accounts (Bar/Kitchen) and any extra admins. Create your waiters and share each link (the **Share**/**Copy** buttons make this easy — paste into your group chat or show a QR code).
 4. Open `/bar` on the bar iPad and `/kitchen` on the kitchen device, then **Add to Home Screen** so they run full-screen.
 5. Waiters open their link once, **Add to Home Screen**, and they're ready.
 
@@ -113,8 +113,8 @@ All configuration is via `.env` (see [.env.example](.env.example) for the full l
 | --- | --- | --- |
 | `PORT` | `3000` | HTTP port |
 | `PUBLIC_URL` | `http://localhost:3000` | Base URL used in waiter links |
-| `ADMIN_PASSWORD` | `changeme` | **Set this.** Unlocks the full Admin screen — only you |
-| `STATION_PASSWORD` | _(empty)_ | Separate password for Bar/Kitchen helpers (if empty, they use the admin password) |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `changeme` | **Set the password.** Bootstrap admin, created on first start; manage all accounts afterwards in Admin → Team |
+| `STATION_USERNAME` / `STATION_PASSWORD` | `station` / _(empty)_ | Optional: if the password is set, a Bar/Kitchen **station** account is created on first start (otherwise create station logins in Team) |
 | `SESSION_SECRET` | random | Signs staff sessions; set a fixed value to survive restarts |
 | `WAITER_TOKEN_TTL_HOURS` | `24` | Default lifetime of a waiter link |
 | `DEFAULT_LANG` | `de` | `de` or `en` |
@@ -136,8 +136,8 @@ Most network thermal printers (Epson TM-series and compatibles) speak ESC/POS on
 src/
   server.js     # HTTP server + websockets bootstrap
   app.js        # Express app factory (routes, security headers, static) — testable
-  routes.js     # REST API (config, login, waiters, menu, orders, stations)
-  auth.js       # admin/station tokens, single-use waiter claims, rate limiting
+  routes.js     # REST API (config, login, accounts, waiters, menu, orders, stations, reset)
+  auth.js       # accounts (scrypt) + signed session tokens, single-use waiter claims, rate limiting
   orders.js     # order creation, station queues, print triggering
   realtime.js   # Socket.IO rooms (staff vs. waiter)
   printer.js    # ESC/POS rendering + network/console/spool output
