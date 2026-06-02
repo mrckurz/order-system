@@ -205,6 +205,52 @@ test('waiter link uses the static ?c= form and /w redirects', async () => {
   assert.match(red.headers.get('location'), /\/waiter\.html\?c=sometoken/);
 });
 
+test('events: a default active event exists; can create & activate another', async () => {
+  const admin = await asAdmin();
+  const evs = (await jf('/api/admin/events', { token: admin })).json;
+  assert.ok(evs.length >= 1, 'a default event exists');
+  assert.ok(evs.some((e) => e.active), 'one event is active');
+
+  const created = await jf('/api/admin/events', { method: 'POST', token: admin, body: { name: 'Fest B', seedMenu: true } });
+  assert.equal(created.status, 201);
+  assert.equal(created.json.name, 'Fest B');
+
+  await jf(`/api/admin/events/${created.json.id}/activate`, { method: 'POST', token: admin });
+  const menu = (await jf('/api/admin/menu', { token: admin })).json;
+  assert.ok(menu.categories.length > 0, 'the new event has its own seeded menu');
+
+  // the active event cannot be deleted
+  assert.equal((await jf(`/api/admin/events/${created.json.id}`, { method: 'DELETE', token: admin })).status, 400);
+});
+
+test('per-event statistics and CSV export', async () => {
+  const admin = await asAdmin();
+  const ev = (await jf('/api/admin/events', { method: 'POST', token: admin, body: { name: 'Stats Fest', seedMenu: true } })).json;
+  await jf(`/api/admin/events/${ev.id}/activate`, { method: 'POST', token: admin });
+
+  const w = (await jf('/api/admin/waiters', { method: 'POST', token: admin, body: { name: 'S1' } })).json;
+  const claimToken = new URL(w.link).searchParams.get('c');
+  const sess = (await jf('/api/waiters/claim', { method: 'POST', body: { claimToken } })).json.sessionToken;
+  const item = (await jf('/api/menu', { token: sess })).json.categories.flatMap((c) => c.items)[0];
+  await jf('/api/orders', { method: 'POST', token: sess, body: { table: '1', items: [{ articleId: item.id, qty: 4 }] } });
+
+  const stats = (await jf(`/api/admin/stats?eventId=${ev.id}`, { token: admin })).json;
+  assert.equal(stats.totals.orders, 1);
+  assert.equal(stats.totals.revenue, item.price * 4);
+  assert.equal(stats.perWaiter[0].waiter, 'S1');
+  assert.equal(stats.perProduct[0].qty, 4);
+
+  // a brand-new empty event reports zero revenue (isolation)
+  const empty = (await jf('/api/admin/events', { method: 'POST', token: admin, body: { name: 'Leer', seedMenu: true } })).json;
+  assert.equal((await jf(`/api/admin/stats?eventId=${empty.id}`, { token: admin })).json.totals.revenue, 0);
+
+  const res = await fetch(base + `/api/admin/events/${ev.id}/export.csv`, { headers: { Authorization: `Bearer ${admin}` } });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /text\/csv/);
+  const csv = await res.text();
+  assert.match(csv, /order_id,datetime,waiter/);
+});
+
 test('CORS allows cross-origin browser requests with Authorization', async () => {
   const res = await fetch(base + '/api/config', { headers: { Origin: 'https://example.github.io' } });
   assert.equal(res.headers.get('access-control-allow-origin'), 'https://example.github.io');

@@ -10,6 +10,14 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'active',  -- 'active' or 'archived'
+    created_at INTEGER NOT NULL,
+    closed_at  INTEGER
+  );
+
   CREATE TABLE IF NOT EXISTS stations (
     id     TEXT PRIMARY KEY,
     label  TEXT NOT NULL,
@@ -17,11 +25,21 @@ db.exec(`
     sort   INTEGER NOT NULL DEFAULT 0
   );
 
+  CREATE TABLE IF NOT EXISTS accounts (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL DEFAULT 'admin',
+    active        INTEGER NOT NULL DEFAULT 1,
+    created_at    INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS categories (
-    id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    name    TEXT NOT NULL,
-    station TEXT NOT NULL DEFAULT 'drinks',
-    sort    INTEGER NOT NULL DEFAULT 0
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER,
+    name     TEXT NOT NULL,
+    station  TEXT NOT NULL DEFAULT 'drinks',
+    sort     INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS articles (
@@ -34,21 +52,13 @@ db.exec(`
     sort        INTEGER NOT NULL DEFAULT 0
   );
 
-  CREATE TABLE IF NOT EXISTS accounts (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    password_hash TEXT NOT NULL,
-    role          TEXT NOT NULL DEFAULT 'admin',  -- 'admin' or 'station'
-    active        INTEGER NOT NULL DEFAULT 1,
-    created_at    INTEGER NOT NULL
-  );
-
   CREATE TABLE IF NOT EXISTS waiters (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id      INTEGER,
     name          TEXT NOT NULL,
-    claim_token   TEXT NOT NULL UNIQUE,   -- the single-use login link
-    session_token TEXT UNIQUE,            -- issued once the link is claimed on a device
-    claimed_at    INTEGER,                -- when the link was first opened/claimed
+    claim_token   TEXT NOT NULL UNIQUE,
+    session_token TEXT UNIQUE,
+    claimed_at    INTEGER,
     active        INTEGER NOT NULL DEFAULT 1,
     created_at    INTEGER NOT NULL,
     expires_at    INTEGER NOT NULL
@@ -56,6 +66,7 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS orders (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id   INTEGER,
     waiter_id  INTEGER REFERENCES waiters(id) ON DELETE SET NULL,
     table_no   TEXT,
     note       TEXT,
@@ -79,9 +90,26 @@ db.exec(`
     value TEXT
   );
 
-  CREATE INDEX IF NOT EXISTS idx_items_order   ON order_items(order_id);
-  CREATE INDEX IF NOT EXISTS idx_items_station ON order_items(station, status);
-  CREATE INDEX IF NOT EXISTS idx_orders_waiter ON orders(waiter_id);
+  CREATE INDEX IF NOT EXISTS idx_items_order    ON order_items(order_id);
+  CREATE INDEX IF NOT EXISTS idx_items_station  ON order_items(station, status);
+  CREATE INDEX IF NOT EXISTS idx_orders_waiter  ON orders(waiter_id);
+`);
+
+// --- Migration: add event_id to tables created before the events feature ---
+// Must run BEFORE creating indexes on event_id (a legacy table won't have the
+// column yet).
+function ensureColumn(table, col, ddl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+}
+ensureColumn('categories', 'event_id', 'event_id INTEGER');
+ensureColumn('waiters', 'event_id', 'event_id INTEGER');
+ensureColumn('orders', 'event_id', 'event_id INTEGER');
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_orders_event   ON orders(event_id);
+  CREATE INDEX IF NOT EXISTS idx_cats_event     ON categories(event_id);
+  CREATE INDEX IF NOT EXISTS idx_waiters_event  ON waiters(event_id);
 `);
 
 export default db;

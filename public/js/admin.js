@@ -1,5 +1,5 @@
 import {
-  loadConfig, api, t, money, time, el, tokens, connectSocket, ensureStaff, registerSW, currencySymbol,
+  loadConfig, api, t, money, time, el, tokens, connectSocket, ensureStaff, registerSW, currencySymbol, API_BASE,
 } from './common.js';
 
 registerSW();
@@ -16,12 +16,16 @@ function toast(msg, err = false) {
 }
 
 document.body.innerHTML = '';
-const tabs = ['orders', 'waiters', 'menu', 'team'];
-const tabLabels = { orders: t('orders'), waiters: t('waiters'), menu: t('menu'), team: t('team') };
+const tabs = ['orders', 'stats', 'menu', 'waiters', 'team', 'events'];
+const tabLabels = {
+  orders: t('orders'), stats: t('statistics'), menu: t('menu'),
+  waiters: t('waiters'), team: t('team'), events: t('events'),
+};
 let current = 'orders';
 
 const nav = el('header', { class: 'topbar' },
-  el('h1', {}, 'OrderFlow · ' + t('admin')),
+  el('h1', {}, 'OrderFlow'),
+  cfg.activeEvent ? el('span', { class: 'badge' }, '🎪 ' + cfg.activeEvent.name) : null,
   el('button', {
     class: 'btn-sm btn-ghost', style: 'color:#fff',
     onclick: () => { tokens.clearAdmin(); location.href = 'index.html'; },
@@ -46,9 +50,11 @@ function select(tab) {
 function render() {
   content.innerHTML = '';
   if (current === 'orders') renderOrders();
-  else if (current === 'waiters') renderWaiters();
+  else if (current === 'stats') renderStats();
   else if (current === 'menu') renderMenu();
-  else renderTeam();
+  else if (current === 'waiters') renderWaiters();
+  else if (current === 'team') renderTeam();
+  else renderEvents();
 }
 
 // ---------------- Orders ----------------
@@ -325,6 +331,128 @@ async function doReset(waiters) {
   await api('/admin/reset', { method: 'POST', token, body: { waiters } });
   toast(t('resetDone'));
   if (current === 'orders') renderOrders();
+}
+
+// ---------------- Events (Feste) ----------------
+async function renderEvents() {
+  const events = await api('/admin/events', { token });
+  content.innerHTML = '';
+
+  // Create event (optionally copy menu from an existing one)
+  const nameI = el('input', { placeholder: t('eventName') });
+  const copySel = el('select', {},
+    el('option', { value: '' }, t('noCopy')),
+    ...events.map((e) => el('option', { value: e.id }, t('copyMenu') + ' ' + e.name))
+  );
+  const add = async () => {
+    if (!nameI.value.trim()) return;
+    const body = { name: nameI.value.trim() };
+    if (copySel.value) body.copyMenuFrom = Number(copySel.value);
+    await api('/admin/events', { method: 'POST', token, body });
+    location.reload(); // new event becomes active → refresh everything
+  };
+  content.append(el('div', { class: 'card' },
+    el('h3', {}, t('addEvent')),
+    el('div', { class: 'row wrap' },
+      el('div', { class: 'grow' }, el('label', {}, t('eventName')), nameI),
+      el('div', {}, el('label', {}, t('copyMenu')), copySel),
+      el('button', { class: 'btn-primary', style: 'align-self:flex-end', onclick: add }, '+')
+    )
+  ));
+
+  for (const e of events) {
+    const tags = el('div', { class: 'row' },
+      e.active ? el('span', { class: 'tag ok' }, t('activeBadge')) : null,
+      e.status === 'archived' ? el('span', { class: 'tag muted' }, t('archived')) : null,
+      el('span', { class: 'tag muted' }, e.orders + ' ' + t('ordersCount'))
+    );
+    const actions = el('div', { class: 'row wrap', style: 'margin-top:.5rem' });
+    if (!e.active) {
+      actions.append(el('button', { class: 'btn-sm btn-primary', onclick: async () => {
+        await api(`/admin/events/${e.id}/activate`, { method: 'POST', token });
+        location.reload();
+      } }, '▶ ' + t('activate')));
+    }
+    actions.append(el('button', { class: 'btn-sm btn-ghost', onclick: async () => {
+      const n = prompt(t('eventName'), e.name);
+      if (!n) return;
+      await api(`/admin/events/${e.id}`, { method: 'PATCH', token, body: { name: n } });
+      e.active ? location.reload() : renderEvents();
+    } }, '✎'));
+    actions.append(el('button', { class: 'btn-sm btn-ghost', onclick: async () => {
+      await api(`/admin/events/${e.id}`, { method: 'PATCH', token, body: { status: e.status === 'archived' ? 'active' : 'archived' } });
+      renderEvents();
+    } }, e.status === 'archived' ? t('reopenEvent') : t('closeEvent')));
+    if (!e.active) {
+      actions.append(el('button', { class: 'btn-sm btn-ghost', onclick: async () => {
+        if (!confirm(`${t('deleteEvent')} "${e.name}"? ${t('resetConfirm')}`)) return;
+        try { await api(`/admin/events/${e.id}`, { method: 'DELETE', token }); renderEvents(); }
+        catch (err) { toast(err.message, true); }
+      } }, '🗑'));
+    }
+    content.append(el('div', { class: 'card' },
+      el('div', { class: 'row spread' }, el('strong', {}, e.name), tags),
+      actions
+    ));
+  }
+}
+
+// ---------------- Statistics dashboard ----------------
+let statsEventId = null;
+function kpi(label, val) {
+  return el('div', { class: 'card', style: 'flex:1;min-width:130px;text-align:center;margin:0' },
+    el('div', { class: 'muted', style: 'font-size:.8rem' }, label),
+    el('div', { style: 'font-size:1.5rem;font-weight:700' }, String(val))
+  );
+}
+function tableCard(title, headers, rows) {
+  const body = rows.length
+    ? rows.map((r) => el('tr', {}, ...r.map((c) => el('td', {}, String(c)))))
+    : [el('tr', {}, el('td', { colspan: String(headers.length), class: 'muted' }, t('noData')))];
+  return el('div', { class: 'card' },
+    el('h3', {}, title),
+    el('table', {}, el('tr', {}, ...headers.map((h) => el('th', {}, h))), ...body)
+  );
+}
+async function downloadCsv(eventId) {
+  const res = await fetch(`${API_BASE}/api/admin/events/${eventId}/export.csv`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = el('a', { href: url, download: `orderflow-event-${eventId}.csv` });
+  document.body.append(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+async function renderStats() {
+  const events = await api('/admin/events', { token });
+  content.innerHTML = '';
+  if (!statsEventId || !events.some((e) => e.id === statsEventId)) {
+    statsEventId = (events.find((e) => e.active) || events[0])?.id;
+  }
+  const sel = el('select', {},
+    ...events.map((e) => el('option', { value: e.id, ...(e.id === statsEventId ? { selected: '' } : {}) }, e.name))
+  );
+  sel.addEventListener('change', () => { statsEventId = Number(sel.value); renderStats(); });
+  content.append(el('div', { class: 'card' },
+    el('div', { class: 'row spread wrap' },
+      el('div', { class: 'grow' }, el('label', {}, t('selectEvent')), sel),
+      el('button', { class: 'btn-sm btn-ghost', style: 'align-self:flex-end', onclick: () => downloadCsv(statsEventId) }, '⬇ ' + t('exportCsv'))
+    )
+  ));
+  const s = await api('/admin/stats?eventId=' + statsEventId, { token });
+  content.append(el('div', { class: 'row wrap', style: 'gap:.6rem' },
+    kpi(t('revenue'), money(s.totals.revenue)),
+    kpi(t('ordersCount'), s.totals.orders),
+    kpi(t('avgOrder'), money(s.totals.avgOrder)),
+    kpi(t('items'), s.totals.items)
+  ));
+  content.append(tableCard(t('perWaiter'), [t('waiterName'), t('ordersCount'), t('revenue')],
+    s.perWaiter.map((r) => [r.waiter, r.orders, money(r.revenue)])));
+  content.append(tableCard(t('perProduct'), [t('product'), t('qtySold'), t('revenue')],
+    s.perProduct.map((r) => [r.name, r.qty, money(r.revenue)])));
+  content.append(tableCard(t('perStation'), [t('station'), t('qtySold'), t('revenue')],
+    s.perStation.map((r) => [r.station, r.qty, money(r.revenue)])));
 }
 
 // Live order updates while on the orders tab.
