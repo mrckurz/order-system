@@ -1,0 +1,51 @@
+{
+  "_comment": "Default menu, seeded on first start. Based on the 2025 price list of FF Weissenberg. Everything here is editable in the Admin screen at runtime; this file is only the initial seed. Prices are in the configured currency (default EUR). 'station' must match one of the station ids below.",
+  "stations": [
+    { "id": "drinks", "label_de": "Schank", "label_en": "Bar", "print": false, "sort": 1 },
+    { "id": "food", "label_de": "Speisenausgabe", "label_en": "Kitchen", "print": true, "sort": 2 }
+  ],
+  "categories": [
+    {
+      "name_de": "Speisen",
+      "name_en": "Food",
+      "station": "food",
+      "items": [
+        { "name": "Bratwürstel mit Sauerkraut u. Bauernbrot", "price": 6.0 },
+        { "name": "Bosna groß", "price": 5.5 },
+        { "name": "Bosna klein", "price": 4.5 },
+        { "name": "Fleischbrot / Speckbrot", "price": 3.5 },
+        { "name": "Topfenbrot / Liptauerbrot", "price": 3.0 },
+        { "name": "Pommes", "price": 3.5 }
+      ]
+    },
+    {
+      "name_de": "Getränke",
+      "name_en": "Drinks",
+      "station": "drinks",
+      "items": [
+        { "name": "0,5l Freistädter Ratsherrn / Bio-Zwickl", "price": 4.5 },
+        { "name": "0,33l Freistädter Ratsherrn / Bio-Zwickl", "price": 4.0 },
+        { "name": "0,5l (Saurer) Radler", "price": 4.5 },
+        { "name": "0,33l (Saurer) Radler", "price": 4.0 },
+        { "name": "0,5l Spritzer Weiß / Sommerspritzer", "price": 4.5 },
+        { "name": "0,25l Spritzer Weiß / Sommerspritzer", "price": 3.0 },
+        { "name": "0,5l Most g'spritzt", "price": 3.5 },
+        { "name": "0,25l Most g'spritzt", "price": 2.5 },
+        { "name": "0,5l Apfelsaft g'spritzt", "price": 3.5 },
+        { "name": "0,25l Apfelsaft g'spritzt", "price": 2.5 },
+        { "name": "0,33l Römerquelle Mineralwasser", "price": 3.0 },
+        { "name": "0,33l Almdudler / Freistädter Cola / Orangen Limo", "price": 3.0 },
+        { "name": "2cl Div. Liköre u. Edelbrände", "price": 3.0 }
+      ]
+    },
+    {
+      "name_de": "Mehlspeisen und Kaffee",
+      "name_en": "Pastries & Coffee",
+      "station": "food",
+      "items": [
+        { "name": "Kaffee", "price": 2.5 },
+        { "name": "Div. Mehlspeisen", "price": 3.0 }
+      ]
+    }
+  ]
+}

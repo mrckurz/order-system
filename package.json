@@ -1,0 +1,44 @@
+{
+  "name": "orderflow",
+  "version": "0.1.0",
+  "description": "Open-source PWA order system for events — waiters take orders on their phones, bar & kitchen stations see them live, kitchen tickets print in arrival order.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "seed": "node src/seed.js",
+    "seed:reset": "node src/seed.js --reset",
+    "icons": "node scripts/generate-icons.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "pwa",
+    "point-of-sale",
+    "pos",
+    "orders",
+    "event",
+    "festival",
+    "kitchen-display",
+    "escpos",
+    "self-hosted"
+  ],
+  "author": "OrderFlow contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mrckurz/order-system.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mrckurz/order-system/issues"
+  },
+  "homepage": "https://github.com/mrckurz/order-system#readme",
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  }
+}

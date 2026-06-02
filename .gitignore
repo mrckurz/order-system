@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Environment & secrets
+.env
+.env.local
+
+# Local database & runtime data
+data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+npm-debug.log*
+
+# Generated print spool (debug)
+spool/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp

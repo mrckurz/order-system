@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Questions & ideas
+    url: https://github.com/mrckurz/order-system/discussions
+    about: Ask questions, share how you used OrderFlow at your event, or discuss ideas.
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/mrckurz/order-system/security/advisories/new
+    about: Please report vulnerabilities privately, not as a public issue.

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#c0392b" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <title>OrderFlow · Waiter</title>
+</head>
+<body>
+  <header class="topbar">
+    <h1 id="title">OrderFlow</h1>
+    <span class="badge" id="waiterName"></span>
+    <button class="btn-sm btn-ghost" id="logoutBtn" style="color:#fff" hidden></button>
+  </header>
+
+  <main id="app" style="padding-bottom:160px">
+    <div class="empty-state" id="loading">…</div>
+  </main>
+
+  <div class="cart-bar" id="cartBar" hidden>
+    <div class="cart-list" id="cartList"></div>
+    <div class="row" style="margin:.5rem 0">
+      <input id="tableInput" inputmode="numeric" placeholder="Tisch" class="grow" />
+      <input id="noteInput" placeholder="Notiz" class="grow" />
+    </div>
+    <div class="row">
+      <button class="btn-ghost btn-sm" id="clearBtn"></button>
+      <button class="btn-primary grow" id="sendBtn"><span id="sendLabel"></span> · <span id="cartTotal"></span></button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/waiter.js" type="module"></script>
+</body>
+</html>
