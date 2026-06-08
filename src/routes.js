@@ -3,12 +3,13 @@ import db from './db.js';
 import config from './config.js';
 import {
   requireAdmin,
+  requireSuperadmin,
   requireStaff,
   requireWaiter,
   verifyAccount,
   createAccount,
   getAccountById,
-  countActiveAdmins,
+  countActiveSuperadmins,
   hashPassword,
   createSessionToken,
   claimWaiterLink,
@@ -25,15 +26,17 @@ import {
 } from './orders.js';
 import { emitReset } from './realtime.js';
 import {
-  getActiveEventId,
-  getActiveEvent,
+  ownerIdFor,
+  getActiveEventIdFor,
+  setActiveEventForAccount,
+  getActiveEventFor,
   getEvent,
-  listEvents,
+  listEventsFor,
   createEvent,
   renameEvent,
   setEventStatus,
   deleteEvent,
-  setActiveEvent,
+  canAccessEvent,
 } from './events.js';
 import { eventStats, eventCsv } from './stats.js';
 import { seedEventMenu } from './seed.js';
@@ -59,16 +62,23 @@ function waiterLink(claimToken) {
   return `${base}/waiter.html?c=${claimToken}`;
 }
 
+// Throw 403 unless the requesting staff may access this event.
+function assertEvent(req, eventId) {
+  const ev = getEvent(eventId);
+  if (!ev || !canAccessEvent(req.staff, ev)) throw Object.assign(new Error('forbidden'), { status: 403 });
+  return ev;
+}
+const eventOfCategory = (id) => db.prepare('SELECT event_id FROM categories WHERE id = ?').get(id)?.event_id;
+const eventOfArticle = (id) =>
+  db.prepare('SELECT c.event_id e FROM articles a JOIN categories c ON c.id = a.category_id WHERE a.id = ?').get(id)?.e;
+const eventOfWaiter = (id) => db.prepare('SELECT event_id FROM waiters WHERE id = ?').get(id)?.event_id;
+const eventOfOrder = (id) => db.prepare('SELECT event_id FROM orders WHERE id = ?').get(id)?.event_id;
+const eventOfItem = (id) =>
+  db.prepare('SELECT o.event_id e FROM order_items i JOIN orders o ON o.id = i.order_id WHERE i.id = ?').get(id)?.e;
+
 // ---------- public config ----------
 router.get('/config', (req, res) => {
-  const ev = getActiveEvent();
-  res.json({
-    appName: 'OrderFlow',
-    lang: config.defaultLang,
-    currency: config.currency,
-    stations: getStations(),
-    activeEvent: ev ? { id: ev.id, name: ev.name } : null,
-  });
+  res.json({ appName: 'OrderFlow', lang: config.defaultLang, currency: config.currency, stations: getStations() });
 });
 
 // ---------- staff login ----------
@@ -78,9 +88,15 @@ router.post('/login', rateLimit({ bucket: 'login', max: 10, windowMs: 60_000 }),
   res.json({ token: createSessionToken(acc), role: acc.role, username: acc.username });
 });
 
-router.get('/whoami', requireStaff, (req, res) =>
-  res.json({ role: req.staff.role, username: req.staff.username, uid: req.staff.id })
-);
+router.get('/whoami', requireStaff, (req, res) => {
+  const ev = getActiveEventFor(req.staff);
+  res.json({
+    role: req.staff.role,
+    username: req.staff.username,
+    uid: req.staff.id,
+    activeEvent: ev ? { id: ev.id, name: ev.name } : null,
+  });
+});
 
 // ---------- waiter: claim a single-use link ----------
 router.post('/waiters/claim', rateLimit({ bucket: 'claim', max: 20, windowMs: 60_000 }), (req, res) => {
@@ -95,12 +111,13 @@ router.post('/waiters/claim', rateLimit({ bucket: 'claim', max: 20, windowMs: 60
 router.get('/menu', requireWaiter, (req, res) =>
   res.json({ categories: getMenu(req.waiter.event_id), stations: getStations() })
 );
-router.get('/admin/menu', requireAdmin, (req, res) =>
-  res.json({ categories: getMenu(getActiveEventId(), { includeInactive: true }), stations: getStations() })
-);
+router.get('/admin/menu', requireAdmin, (req, res) => {
+  const eventId = getActiveEventIdFor(req.staff);
+  res.json({ categories: getMenu(eventId, { includeInactive: true }), stations: getStations() });
+});
 
-// ---------- admin: stations ----------
-router.put('/admin/stations/:id', requireAdmin, (req, res) => {
+// ---------- stations definition (global infrastructure — superadmin) ----------
+router.put('/admin/stations/:id', requireSuperadmin, (req, res) => {
   const { label, print, sort } = req.body || {};
   db.prepare(
     `INSERT INTO stations (id, label, print, sort) VALUES (?, ?, ?, ?)
@@ -109,35 +126,40 @@ router.put('/admin/stations/:id', requireAdmin, (req, res) => {
   res.json({ ok: true, stations: getStations() });
 });
 
-// ---------- admin: categories (scoped to the active event) ----------
+// ---------- categories (within the requester's active event) ----------
 router.post('/admin/categories', requireAdmin, (req, res) => {
   const { name, station = 'drinks', sort = 0 } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name_required' });
+  const eventId = getActiveEventIdFor(req.staff);
+  assertEvent(req, eventId);
   const { lastInsertRowid } = db
     .prepare('INSERT INTO categories (event_id, name, station, sort) VALUES (?, ?, ?, ?)')
-    .run(getActiveEventId(), name, station, sort);
+    .run(eventId, name, station, sort);
   res.json({ id: lastInsertRowid });
 });
 
 router.patch('/admin/categories/:id', requireAdmin, (req, res) => {
   const cur = db.prepare('SELECT * FROM categories WHERE id = ?').get(req.params.id);
   if (!cur) return res.status(404).json({ error: 'not_found' });
+  assertEvent(req, cur.event_id);
   const { name = cur.name, station = cur.station, sort = cur.sort } = req.body || {};
   db.prepare('UPDATE categories SET name = ?, station = ?, sort = ? WHERE id = ?').run(name, station, sort, req.params.id);
   res.json({ ok: true });
 });
 
 router.delete('/admin/categories/:id', requireAdmin, (req, res) => {
+  assertEvent(req, eventOfCategory(req.params.id));
   db.prepare('DELETE FROM categories WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 
-// ---------- admin: articles ----------
+// ---------- articles ----------
 router.post('/admin/articles', requireAdmin, (req, res) => {
   const { categoryId, name, price = 0, station, sort = 0 } = req.body || {};
   if (!categoryId || !name) return res.status(400).json({ error: 'category_and_name_required' });
-  const cat = db.prepare('SELECT * FROM categories WHERE id = ? AND event_id = ?').get(categoryId, getActiveEventId());
+  const cat = db.prepare('SELECT * FROM categories WHERE id = ?').get(categoryId);
   if (!cat) return res.status(400).json({ error: 'unknown_category' });
+  assertEvent(req, cat.event_id);
   const { lastInsertRowid } = db
     .prepare('INSERT INTO articles (category_id, name, price, station, active, sort) VALUES (?, ?, ?, ?, 1, ?)')
     .run(categoryId, name, Number(price) || 0, station || cat.station, sort);
@@ -147,98 +169,147 @@ router.post('/admin/articles', requireAdmin, (req, res) => {
 router.patch('/admin/articles/:id', requireAdmin, (req, res) => {
   const cur = db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.id);
   if (!cur) return res.status(404).json({ error: 'not_found' });
+  assertEvent(req, eventOfArticle(req.params.id));
   const b = req.body || {};
   db.prepare(
     'UPDATE articles SET name = ?, price = ?, station = ?, active = ?, sort = ?, category_id = ? WHERE id = ?'
   ).run(
-    b.name ?? cur.name,
-    b.price ?? cur.price,
-    b.station ?? cur.station,
-    b.active ?? cur.active,
-    b.sort ?? cur.sort,
-    b.categoryId ?? cur.category_id,
-    req.params.id
+    b.name ?? cur.name, b.price ?? cur.price, b.station ?? cur.station,
+    b.active ?? cur.active, b.sort ?? cur.sort, b.categoryId ?? cur.category_id, req.params.id
   );
   res.json({ ok: true });
 });
 
 router.delete('/admin/articles/:id', requireAdmin, (req, res) => {
+  assertEvent(req, eventOfArticle(req.params.id));
   db.prepare('DELETE FROM articles WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 
-// ---------- admin: accounts ----------
+// ---------- Team: station accounts within the requester's tenant ----------
 function publicAccount(a) {
   return { id: a.id, username: a.username, role: a.role, active: !!a.active, created_at: a.created_at };
 }
+function ownsAccount(req, target) {
+  return target.id === req.staff.id || (target.role === 'station' && target.owner_id === ownerIdFor(req.staff));
+}
 
 router.get('/admin/accounts', requireAdmin, (req, res) => {
-  res.json(db.prepare('SELECT * FROM accounts ORDER BY role, username').all().map(publicAccount));
+  const rows = db
+    .prepare("SELECT * FROM accounts WHERE id = ? OR (role = 'station' AND owner_id = ?) ORDER BY role, username")
+    .all(req.staff.id, ownerIdFor(req.staff));
+  res.json(rows.map(publicAccount));
 });
 
 router.post('/admin/accounts', requireAdmin, (req, res) => {
-  const { username, password, role = 'admin' } = req.body || {};
-  const id = createAccount({ username, password, role });
+  const { username, password } = req.body || {};
+  const id = createAccount({ username, password, role: 'station', ownerId: ownerIdFor(req.staff) });
   res.status(201).json(publicAccount(getAccountById(id)));
 });
 
 router.patch('/admin/accounts/:id', requireAdmin, (req, res) => {
-  const id = Number(req.params.id);
-  const acc = getAccountById(id);
+  const acc = getAccountById(Number(req.params.id));
   if (!acc) return res.status(404).json({ error: 'not_found' });
+  if (!ownsAccount(req, acc)) return res.status(403).json({ error: 'forbidden' });
   const b = req.body || {};
-  const willBeInactiveAdmin =
-    acc.role === 'admin' && (b.active === 0 || b.active === false || (b.role && b.role !== 'admin'));
-  if (willBeInactiveAdmin && countActiveAdmins(id) === 0) return res.status(400).json({ error: 'last_admin' });
-  if (b.role && !['admin', 'station'].includes(b.role)) return res.status(400).json({ error: 'invalid_role' });
-
   const username = b.username !== undefined ? String(b.username).trim() || acc.username : acc.username;
-  const role = b.role ?? acc.role;
   const active = b.active === undefined ? acc.active : b.active ? 1 : 0;
   try {
-    db.prepare('UPDATE accounts SET username = ?, role = ?, active = ? WHERE id = ?').run(username, role, active, id);
+    db.prepare('UPDATE accounts SET username = ?, active = ? WHERE id = ?').run(username, active, acc.id);
   } catch (e) {
     if (String(e.message).includes('UNIQUE')) return res.status(409).json({ error: 'username_taken' });
     throw e;
   }
   if (b.password) {
     if (String(b.password).length < 4) return res.status(400).json({ error: 'password_too_short' });
-    db.prepare('UPDATE accounts SET password_hash = ? WHERE id = ?').run(hashPassword(b.password), id);
+    db.prepare('UPDATE accounts SET password_hash = ? WHERE id = ?').run(hashPassword(b.password), acc.id);
   }
-  res.json(publicAccount(getAccountById(id)));
+  res.json(publicAccount(getAccountById(acc.id)));
 });
 
 router.delete('/admin/accounts/:id', requireAdmin, (req, res) => {
-  const id = Number(req.params.id);
-  const acc = getAccountById(id);
+  const acc = getAccountById(Number(req.params.id));
   if (!acc) return res.status(404).json({ error: 'not_found' });
-  if (id === req.staff.id) return res.status(400).json({ error: 'cannot_delete_self' });
-  if (acc.role === 'admin' && countActiveAdmins(id) === 0) return res.status(400).json({ error: 'last_admin' });
-  db.prepare('DELETE FROM accounts WHERE id = ?').run(id);
+  if (acc.id === req.staff.id) return res.status(400).json({ error: 'cannot_delete_self' });
+  if (!ownsAccount(req, acc)) return res.status(403).json({ error: 'forbidden' });
+  db.prepare('DELETE FROM accounts WHERE id = ?').run(acc.id);
   res.json({ ok: true });
 });
 
-// ---------- admin: events ----------
-router.get('/admin/events', requireAdmin, (req, res) => res.json(listEvents()));
+// ---------- Super-admin: fest-admin (customer) management ----------
+function publicFestAdmin(a) {
+  const events = db.prepare('SELECT COUNT(*) n FROM events WHERE owner_id = ?').get(a.id).n;
+  return { id: a.id, username: a.username, role: a.role, active: !!a.active, created_at: a.created_at, events };
+}
+
+router.get('/admin/festadmins', requireSuperadmin, (req, res) => {
+  const rows = db.prepare("SELECT * FROM accounts WHERE role IN ('admin','superadmin') ORDER BY role DESC, username").all();
+  res.json(rows.map(publicFestAdmin));
+});
+
+router.post('/admin/festadmins', requireSuperadmin, (req, res) => {
+  const { username, password, role = 'admin' } = req.body || {};
+  if (!['admin', 'superadmin'].includes(role)) return res.status(400).json({ error: 'invalid_role' });
+  const id = createAccount({ username, password, role, ownerId: null });
+  res.status(201).json(publicFestAdmin(getAccountById(id)));
+});
+
+router.patch('/admin/festadmins/:id', requireSuperadmin, (req, res) => {
+  const acc = getAccountById(Number(req.params.id));
+  if (!acc || !['admin', 'superadmin'].includes(acc.role)) return res.status(404).json({ error: 'not_found' });
+  const b = req.body || {};
+  const becomesNonSuper = acc.role === 'superadmin' && ((b.role && b.role !== 'superadmin') || b.active === false);
+  if (becomesNonSuper && countActiveSuperadmins(acc.id) === 0) return res.status(400).json({ error: 'last_superadmin' });
+  if (b.role && !['admin', 'superadmin'].includes(b.role)) return res.status(400).json({ error: 'invalid_role' });
+
+  const username = b.username !== undefined ? String(b.username).trim() || acc.username : acc.username;
+  const role = b.role ?? acc.role;
+  const active = b.active === undefined ? acc.active : b.active ? 1 : 0;
+  try {
+    db.prepare('UPDATE accounts SET username = ?, role = ?, active = ? WHERE id = ?').run(username, role, active, acc.id);
+  } catch (e) {
+    if (String(e.message).includes('UNIQUE')) return res.status(409).json({ error: 'username_taken' });
+    throw e;
+  }
+  if (b.password) {
+    if (String(b.password).length < 4) return res.status(400).json({ error: 'password_too_short' });
+    db.prepare('UPDATE accounts SET password_hash = ? WHERE id = ?').run(hashPassword(b.password), acc.id);
+  }
+  res.json(publicFestAdmin(getAccountById(acc.id)));
+});
+
+router.delete('/admin/festadmins/:id', requireSuperadmin, (req, res) => {
+  const acc = getAccountById(Number(req.params.id));
+  if (!acc || !['admin', 'superadmin'].includes(acc.role)) return res.status(404).json({ error: 'not_found' });
+  if (acc.id === req.staff.id) return res.status(400).json({ error: 'cannot_delete_self' });
+  if (acc.role === 'superadmin' && countActiveSuperadmins(acc.id) === 0) return res.status(400).json({ error: 'last_superadmin' });
+  db.transaction(() => {
+    for (const ev of db.prepare('SELECT id FROM events WHERE owner_id = ?').all(acc.id)) deleteEvent(ev.id);
+    db.prepare('DELETE FROM accounts WHERE owner_id = ?').run(acc.id); // their station accounts
+    db.prepare('DELETE FROM accounts WHERE id = ?').run(acc.id);
+  })();
+  res.json({ ok: true });
+});
+
+// ---------- events ----------
+router.get('/admin/events', requireAdmin, (req, res) => res.json(listEventsFor(req.staff)));
 
 router.post('/admin/events', requireAdmin, (req, res) => {
   const { name, copyMenuFrom, seedMenu, activate = true } = req.body || {};
-  const ev = createEvent({ name, copyFromEventId: copyMenuFrom || null, activate });
-  // If not copying from another event and the new event has no menu, seed defaults.
+  if (copyMenuFrom) assertEvent(req, copyMenuFrom);
+  const ev = createEvent({ name, owner: req.staff, copyFromEventId: copyMenuFrom || null, activate });
   if (!copyMenuFrom && seedMenu !== false) seedEventMenu(ev.id);
   res.status(201).json(ev);
 });
 
 router.post('/admin/events/:id/activate', requireAdmin, (req, res) => {
-  const ev = getEvent(Number(req.params.id));
-  if (!ev) return res.status(404).json({ error: 'not_found' });
-  setActiveEvent(ev.id);
+  assertEvent(req, Number(req.params.id));
+  setActiveEventForAccount(req.staff.id, Number(req.params.id));
   res.json({ ok: true });
 });
 
 router.patch('/admin/events/:id', requireAdmin, (req, res) => {
-  const ev = getEvent(Number(req.params.id));
-  if (!ev) return res.status(404).json({ error: 'not_found' });
+  const ev = assertEvent(req, Number(req.params.id));
   let out = ev;
   if (req.body?.name !== undefined) out = renameEvent(ev.id, req.body.name);
   if (req.body?.status) out = setEventStatus(ev.id, req.body.status);
@@ -247,61 +318,66 @@ router.patch('/admin/events/:id', requireAdmin, (req, res) => {
 
 router.delete('/admin/events/:id', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
-  const ev = getEvent(id);
-  if (!ev) return res.status(404).json({ error: 'not_found' });
-  if (id === getActiveEventId()) return res.status(400).json({ error: 'cannot_delete_active' });
+  assertEvent(req, id);
+  if (id === getActiveEventIdFor(req.staff)) return res.status(400).json({ error: 'cannot_delete_active' });
   deleteEvent(id);
   res.json({ ok: true });
 });
 
-// ---------- admin: statistics + CSV export ----------
+// ---------- statistics + CSV export ----------
 router.get('/admin/stats', requireAdmin, (req, res) => {
-  const eventId = Number(req.query.eventId) || getActiveEventId();
-  const ev = getEvent(eventId);
-  if (!ev) return res.status(404).json({ error: 'not_found' });
+  const eventId = Number(req.query.eventId) || getActiveEventIdFor(req.staff);
+  const ev = assertEvent(req, eventId);
   res.json({ event: { id: ev.id, name: ev.name }, ...eventStats(eventId) });
 });
 
 router.get('/admin/events/:id/export.csv', requireAdmin, (req, res) => {
-  const ev = getEvent(Number(req.params.id));
-  if (!ev) return res.status(404).json({ error: 'not_found' });
+  const ev = assertEvent(req, Number(req.params.id));
   const safe = ev.name.replace(/[^a-z0-9_-]+/gi, '_').toLowerCase();
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="orderflow-${safe}-${ev.id}.csv"`);
   res.send(eventCsv(ev.id));
 });
 
-// ---------- admin: orders overview (active event) ----------
+// ---------- orders overview (active event, or any accessible event) ----------
 router.get('/admin/orders', requireAdmin, (req, res) => {
-  res.json(listOrders({ eventId: getActiveEventId(), limit: Number(req.query.limit) || 200 }));
+  const eventId = Number(req.query.eventId) || getActiveEventIdFor(req.staff);
+  assertEvent(req, eventId);
+  res.json(listOrders({ eventId, limit: Number(req.query.limit) || 200 }));
 });
 
-// Reset the active event's order data (for testing before going live).
 router.post('/admin/reset', requireAdmin, (req, res) => {
-  const eventId = getActiveEventId();
+  const eventId = getActiveEventIdFor(req.staff);
+  assertEvent(req, eventId);
   const alsoWaiters = !!req.body?.waiters;
   db.transaction(() => {
-    const ids = db.prepare('SELECT id FROM orders WHERE event_id = ?').all(eventId).map((r) => r.id);
-    const del = db.prepare('DELETE FROM orders WHERE id = ?');
-    for (const id of ids) del.run(id); // order_items cascade
+    for (const o of db.prepare('SELECT id FROM orders WHERE event_id = ?').all(eventId))
+      db.prepare('DELETE FROM orders WHERE id = ?').run(o.id);
     if (alsoWaiters) db.prepare('DELETE FROM waiters WHERE event_id = ?').run(eventId);
   })();
   emitReset();
   res.json({ ok: true, waiters: alsoWaiters });
 });
 
-// ---------- stations (bar / kitchen) — active event ----------
+// ---------- stations (bar / kitchen) — staff, scoped to their active event ----------
 router.get('/stations/:station/queue', requireStaff, (req, res) => {
-  res.json(getStationQueue(req.params.station, getActiveEventId()));
+  res.json(getStationQueue(req.params.station, getActiveEventIdFor(req.staff)));
 });
 
-router.post('/order-items/:id/done', requireStaff, (req, res) => res.json(setItemStatus(Number(req.params.id), 'done')));
-router.post('/orders/:id/done', requireStaff, (req, res) =>
-  res.json(setOrderStatus(Number(req.params.id), 'done', req.body?.station || null))
-);
-router.post('/orders/:id/reprint', requireStaff, asyncH((req, res) => res.json(reprintOrder(Number(req.params.id)))));
+router.post('/order-items/:id/done', requireStaff, (req, res) => {
+  assertEvent(req, eventOfItem(req.params.id));
+  res.json(setItemStatus(Number(req.params.id), 'done'));
+});
+router.post('/orders/:id/done', requireStaff, (req, res) => {
+  assertEvent(req, eventOfOrder(req.params.id));
+  res.json(setOrderStatus(Number(req.params.id), 'done', req.body?.station || null));
+});
+router.post('/orders/:id/reprint', requireStaff, asyncH((req, res) => {
+  assertEvent(req, eventOfOrder(req.params.id));
+  res.json(reprintOrder(Number(req.params.id)));
+}));
 
-// ---------- admin: waiters (scoped to the active event) ----------
+// ---------- waiters (within the requester's active event) ----------
 function waiterStatus(w) {
   if (!w.active) return 'revoked';
   if (Date.now() > w.expires_at) return 'expired';
@@ -310,39 +386,34 @@ function waiterStatus(w) {
 }
 function publicWaiter(w) {
   return {
-    id: w.id,
-    name: w.name,
-    status: waiterStatus(w),
-    claimed: !!w.session_token,
-    claimed_at: w.claimed_at,
-    created_at: w.created_at,
-    expires_at: w.expires_at,
+    id: w.id, name: w.name, status: waiterStatus(w), claimed: !!w.session_token,
+    claimed_at: w.claimed_at, created_at: w.created_at, expires_at: w.expires_at,
     link: w.session_token ? null : waiterLink(w.claim_token),
   };
 }
 
 router.get('/admin/waiters', requireAdmin, (req, res) => {
-  res.json(
-    db.prepare('SELECT * FROM waiters WHERE event_id = ? ORDER BY created_at DESC').all(getActiveEventId()).map(publicWaiter)
-  );
+  const eventId = getActiveEventIdFor(req.staff);
+  res.json(db.prepare('SELECT * FROM waiters WHERE event_id = ? ORDER BY created_at DESC').all(eventId).map(publicWaiter));
 });
 
 router.post('/admin/waiters', requireAdmin, (req, res) => {
   const name = (req.body?.name || '').trim();
   if (!name) return res.status(400).json({ error: 'name_required' });
+  const eventId = getActiveEventIdFor(req.staff);
+  assertEvent(req, eventId);
   const ttlHours = Number(req.body?.ttlHours) || config.waiterTokenTtlHours;
   const now = Date.now();
   const { lastInsertRowid } = db
-    .prepare(
-      'INSERT INTO waiters (event_id, name, claim_token, active, created_at, expires_at) VALUES (?, ?, ?, 1, ?, ?)'
-    )
-    .run(getActiveEventId(), name, newToken(), now, now + ttlHours * 3600_000);
+    .prepare('INSERT INTO waiters (event_id, name, claim_token, active, created_at, expires_at) VALUES (?, ?, ?, 1, ?, ?)')
+    .run(eventId, name, newToken(), now, now + ttlHours * 3600_000);
   res.json(publicWaiter(db.prepare('SELECT * FROM waiters WHERE id = ?').get(lastInsertRowid)));
 });
 
 router.post('/admin/waiters/:id/relink', requireAdmin, (req, res) => {
   const w = db.prepare('SELECT * FROM waiters WHERE id = ?').get(req.params.id);
   if (!w) return res.status(404).json({ error: 'not_found' });
+  assertEvent(req, w.event_id);
   const hours = Number(req.body?.hours) || config.waiterTokenTtlHours;
   db.prepare(
     'UPDATE waiters SET claim_token = ?, session_token = NULL, claimed_at = NULL, active = 1, expires_at = ? WHERE id = ?'
@@ -351,11 +422,13 @@ router.post('/admin/waiters/:id/relink', requireAdmin, (req, res) => {
 });
 
 router.post('/admin/waiters/:id/revoke', requireAdmin, (req, res) => {
+  assertEvent(req, eventOfWaiter(req.params.id));
   db.prepare('UPDATE waiters SET active = 0 WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 
 router.delete('/admin/waiters/:id', requireAdmin, (req, res) => {
+  assertEvent(req, eventOfWaiter(req.params.id));
   db.prepare('DELETE FROM waiters WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
@@ -377,9 +450,7 @@ router.post('/orders', requireWaiter, (req, res) => {
 });
 
 router.get('/orders/mine', requireWaiter, (req, res) => {
-  const orders = db
-    .prepare('SELECT * FROM orders WHERE waiter_id = ? ORDER BY created_at DESC LIMIT 50')
-    .all(req.waiter.id);
+  const orders = db.prepare('SELECT * FROM orders WHERE waiter_id = ? ORDER BY created_at DESC LIMIT 50').all(req.waiter.id);
   const itemsStmt = db.prepare('SELECT * FROM order_items WHERE order_id = ? ORDER BY id');
   for (const o of orders) {
     o.items = itemsStmt.all(o.id);

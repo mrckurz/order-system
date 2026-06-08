@@ -12,6 +12,7 @@ db.pragma('foreign_keys = ON');
 db.exec(`
   CREATE TABLE IF NOT EXISTS events (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id   INTEGER,                          -- the fest-admin account that owns this event
     name       TEXT NOT NULL,
     status     TEXT NOT NULL DEFAULT 'active',  -- 'active' or 'archived'
     created_at INTEGER NOT NULL,
@@ -26,12 +27,14 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS accounts (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    password_hash TEXT NOT NULL,
-    role          TEXT NOT NULL DEFAULT 'admin',
-    active        INTEGER NOT NULL DEFAULT 1,
-    created_at    INTEGER NOT NULL
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    username        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash   TEXT NOT NULL,
+    role            TEXT NOT NULL DEFAULT 'admin',  -- 'superadmin' | 'admin' (fest-admin) | 'station'
+    owner_id        INTEGER,                        -- station accounts: the fest-admin they belong to
+    active_event_id INTEGER,                         -- the event this admin is currently working on
+    active          INTEGER NOT NULL DEFAULT 1,
+    created_at      INTEGER NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS categories (
@@ -105,11 +108,16 @@ function ensureColumn(table, col, ddl) {
 ensureColumn('categories', 'event_id', 'event_id INTEGER');
 ensureColumn('waiters', 'event_id', 'event_id INTEGER');
 ensureColumn('orders', 'event_id', 'event_id INTEGER');
+ensureColumn('events', 'owner_id', 'owner_id INTEGER');
+ensureColumn('accounts', 'owner_id', 'owner_id INTEGER');
+ensureColumn('accounts', 'active_event_id', 'active_event_id INTEGER');
 
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_orders_event   ON orders(event_id);
   CREATE INDEX IF NOT EXISTS idx_cats_event     ON categories(event_id);
   CREATE INDEX IF NOT EXISTS idx_waiters_event  ON waiters(event_id);
+  CREATE INDEX IF NOT EXISTS idx_events_owner   ON events(owner_id);
+  CREATE INDEX IF NOT EXISTS idx_accounts_owner ON accounts(owner_id);
 `);
 
 export default db;

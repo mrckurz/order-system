@@ -26,17 +26,18 @@ export function verifyPassword(password, stored) {
 // ============================================================================
 // Accounts (admins + station logins), stored in the DB and managed in the UI
 // ============================================================================
-export function createAccount({ username, password, role = 'admin' }) {
+export const ROLES = ['superadmin', 'admin', 'station'];
+
+export function createAccount({ username, password, role = 'admin', ownerId = null }) {
   const uname = String(username || '').trim();
   if (!uname) throw Object.assign(new Error('username_required'), { status: 400 });
   if (!password || String(password).length < 4)
     throw Object.assign(new Error('password_too_short'), { status: 400 });
-  if (!['admin', 'station'].includes(role))
-    throw Object.assign(new Error('invalid_role'), { status: 400 });
+  if (!ROLES.includes(role)) throw Object.assign(new Error('invalid_role'), { status: 400 });
   try {
     const info = db
-      .prepare('INSERT INTO accounts (username, password_hash, role, active, created_at) VALUES (?, ?, ?, 1, ?)')
-      .run(uname, hashPassword(password), role, Date.now());
+      .prepare('INSERT INTO accounts (username, password_hash, role, owner_id, active, created_at) VALUES (?, ?, ?, ?, 1, ?)')
+      .run(uname, hashPassword(password), role, ownerId, Date.now());
     return info.lastInsertRowid;
   } catch (e) {
     if (String(e.message).includes('UNIQUE')) throw Object.assign(new Error('username_taken'), { status: 409 });
@@ -55,24 +56,24 @@ export function verifyAccount(username, password) {
   return acc;
 }
 
-export function countActiveAdmins(excludeId = null) {
+export function countActiveSuperadmins(excludeId = null) {
   return db
-    .prepare("SELECT COUNT(*) n FROM accounts WHERE role = 'admin' AND active = 1 AND id != ?")
+    .prepare("SELECT COUNT(*) n FROM accounts WHERE role = 'superadmin' AND active = 1 AND id != ?")
     .get(excludeId ?? -1).n;
 }
 
-// Create the first admin (and optional station) from env on a fresh database.
+// Create the first account (a superadmin) from env on a fresh database.
 export function ensureBootstrapAccounts() {
   const count = db.prepare('SELECT COUNT(*) n FROM accounts').get().n;
   if (count > 0) return;
-  createAccount({ username: config.adminUsername, password: config.adminPassword, role: 'admin' });
-  console.log(`Created bootstrap admin "${config.adminUsername}".`);
+  const id = createAccount({ username: config.adminUsername, password: config.adminPassword, role: 'superadmin' });
+  console.log(`Created bootstrap super-admin "${config.adminUsername}".`);
   if (config.stationPassword) {
-    createAccount({ username: config.stationUsername, password: config.stationPassword, role: 'station' });
+    createAccount({ username: config.stationUsername, password: config.stationPassword, role: 'station', ownerId: id });
     console.log(`Created bootstrap station account "${config.stationUsername}".`);
   }
   if (config.adminPassword === 'changeme') {
-    console.warn('  ⚠  bootstrap admin password is "changeme" — log in and change it immediately!');
+    console.warn('  ⚠  bootstrap super-admin password is "changeme" — log in and change it immediately!');
   }
 }
 
@@ -152,16 +153,27 @@ function bearer(req) {
   return req.query.token || null;
 }
 
+// Admin OR super-admin (both have full control over their own events).
 export function requireAdmin(req, res, next) {
   const acc = staffFromToken(bearer(req));
-  if (!acc || acc.role !== 'admin') return res.status(401).json({ error: 'unauthorized' });
+  if (!acc || !['admin', 'superadmin'].includes(acc.role)) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  req.staff = acc;
+  next();
+}
+
+// Platform operator only.
+export function requireSuperadmin(req, res, next) {
+  const acc = staffFromToken(bearer(req));
+  if (!acc || acc.role !== 'superadmin') return res.status(403).json({ error: 'forbidden' });
   req.staff = acc;
   next();
 }
 
 export function requireStaff(req, res, next) {
   const acc = staffFromToken(bearer(req));
-  if (!acc || !['admin', 'station'].includes(acc.role)) {
+  if (!acc || !['superadmin', 'admin', 'station'].includes(acc.role)) {
     return res.status(401).json({ error: 'unauthorized' });
   }
   req.staff = acc;

@@ -63,12 +63,12 @@ test('config and seeded menu are available', async () => {
   assert.ok(json.stations.find((s) => s.id === 'food'));
 });
 
-test('login: wrong credentials rejected, bootstrap admin accepted', async () => {
+test('login: wrong credentials rejected, bootstrap super-admin accepted', async () => {
   assert.equal((await login('admin', 'nope')).status, 401);
   assert.equal((await login('nobody', 'admin-pw')).status, 401);
   const ok = await login('admin', 'admin-pw');
   assert.equal(ok.status, 200);
-  assert.equal(ok.json.role, 'admin');
+  assert.equal(ok.json.role, 'superadmin');
   assert.equal(ok.json.username, 'admin');
 });
 
@@ -81,31 +81,53 @@ test('bootstrap station account has station role and cannot see admin overview',
   assert.equal(blocked2.status, 401, 'station role must NOT manage accounts');
 });
 
-test('admin can create, use and delete another account', async () => {
+test('admin can create, use and delete a station account', async () => {
   const admin = await asAdmin();
-  const created = await jf('/api/admin/accounts', {
-    method: 'POST', token: admin, body: { username: 'eva', password: 'eva-pass', role: 'admin' },
-  });
+  const created = await jf('/api/admin/accounts', { method: 'POST', token: admin, body: { username: 'eva', password: 'eva-pass' } });
   assert.equal(created.status, 201);
-  assert.equal(created.json.username, 'eva');
+  assert.equal(created.json.role, 'station'); // Team creates station accounts only
 
-  // new admin can log in
   const eva = await login('eva', 'eva-pass');
-  assert.equal(eva.json.role, 'admin');
+  assert.equal(eva.json.role, 'station');
 
-  // duplicate username rejected
-  const dup = await jf('/api/admin/accounts', {
-    method: 'POST', token: admin, body: { username: 'EVA', password: 'x123', role: 'admin' },
-  });
+  const dup = await jf('/api/admin/accounts', { method: 'POST', token: admin, body: { username: 'EVA', password: 'x123' } });
   assert.equal(dup.status, 409);
 
-  // delete eva
-  const del = await jf(`/api/admin/accounts/${created.json.id}`, { method: 'DELETE', token: admin });
-  assert.equal(del.status, 200);
+  assert.equal((await jf(`/api/admin/accounts/${created.json.id}`, { method: 'DELETE', token: admin })).status, 200);
   assert.equal((await login('eva', 'eva-pass')).status, 401);
 });
 
-test('cannot delete the last admin or yourself', async () => {
+test('multi-tenant: super-admin manages fest-admins; tenants are isolated', async () => {
+  const su = await asAdmin(); // bootstrap account is the super-admin
+  const a = await jf('/api/admin/festadmins', { method: 'POST', token: su, body: { username: 'verein-a', password: 'aaaa' } });
+  assert.equal(a.status, 201);
+  assert.equal(a.json.role, 'admin');
+  await jf('/api/admin/festadmins', { method: 'POST', token: su, body: { username: 'verein-b', password: 'bbbb' } });
+
+  const aTok = (await login('verein-a', 'aaaa')).json.token;
+  const bTok = (await login('verein-b', 'bbbb')).json.token;
+
+  // festadmin management is super-admin only
+  assert.equal((await jf('/api/admin/festadmins', { token: aTok })).status, 403);
+
+  // fest-admin A creates its own event with its own seeded menu
+  const evA = (await jf('/api/admin/events', { method: 'POST', token: aTok, body: { name: 'Fest A', seedMenu: true } })).json;
+  assert.ok((await jf('/api/admin/menu', { token: aTok })).json.categories.length > 0);
+
+  // A sees only its own event; super-admin sees it too (with owner)
+  const aEvents = (await jf('/api/admin/events', { token: aTok })).json;
+  assert.equal(aEvents.length, 1);
+  assert.equal(aEvents[0].id, evA.id);
+  const suEvents = (await jf('/api/admin/events', { token: su })).json;
+  assert.ok(suEvents.some((e) => e.id === evA.id && e.owner_name === 'verein-a'));
+
+  // B cannot read or activate A's event; super-admin can read A's stats
+  assert.equal((await jf(`/api/admin/stats?eventId=${evA.id}`, { token: bTok })).status, 403);
+  assert.equal((await jf(`/api/admin/events/${evA.id}/activate`, { method: 'POST', token: bTok })).status, 403);
+  assert.equal((await jf(`/api/admin/stats?eventId=${evA.id}`, { token: su })).status, 200);
+});
+
+test('cannot delete the last super-admin or yourself', async () => {
   const adminLogin = await login('admin', 'admin-pw');
   const admin = adminLogin.json.token;
   const me = (await jf('/api/whoami', { token: admin })).json;

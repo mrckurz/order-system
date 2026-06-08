@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import db from './db.js';
 import config from './config.js';
-import { ensureFirstEvent, getActiveEventId } from './events.js';
+import { ensureFirstEvent } from './events.js';
 
 function loadMenu() {
   return JSON.parse(fs.readFileSync(path.join(config.configDir, 'default-menu.json'), 'utf8'));

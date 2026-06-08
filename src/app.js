@@ -3,6 +3,7 @@ import express from 'express';
 import config from './config.js';
 import { bootstrapData } from './seed.js';
 import { ensureBootstrapAccounts } from './auth.js';
+import { migrateTenancy } from './events.js';
 import api from './routes.js';
 
 // Build the Express app (without starting a listener or websockets).
@@ -10,6 +11,7 @@ import api from './routes.js';
 export function createApp({ runSeed = true } = {}) {
   if (runSeed) bootstrapData();
   ensureBootstrapAccounts();
+  migrateTenancy();
 
   const app = express();
   app.disable('x-powered-by');

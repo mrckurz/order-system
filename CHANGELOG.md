@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Multi-tenancy** — rent one instance to several organisers.
+  - Roles: **super-admin** (platform operator, sees & manages everything), **admin**
+    (fest-admin, owns and sees only their own events), **station**.
+  - Super-admin **Fest-Admins** tab to create/manage customer accounts; events show their owner.
+  - Per-admin active event; ownership scoping on menu, waiters, orders, stats and stations.
+  - Safe migration: the existing bootstrap admin becomes the super-admin and owns the existing events.
+- **Impressum** & **Datenschutzerklärung** pages (AT/§5 ECG + GDPR), linked from the landing footer.
 - **Events/festivals as first-class entities.** Create named events; one is "active".
   Menu, waiters and orders are all scoped per event and stored permanently.
   - Admin → **Feste/Events** tab: create (optionally copying another event's menu),

@@ -16,16 +16,18 @@ function toast(msg, err = false) {
 }
 
 document.body.innerHTML = '';
-const tabs = ['orders', 'stats', 'menu', 'waiters', 'team', 'events'];
+const tabs = ['orders', 'stats', 'menu', 'waiters', 'team', 'events', ...(isSuper ? ['festadmins'] : [])];
 const tabLabels = {
   orders: t('orders'), stats: t('statistics'), menu: t('menu'),
-  waiters: t('waiters'), team: t('team'), events: t('events'),
+  waiters: t('waiters'), team: t('team'), events: t('events'), festadmins: t('festAdmins'),
 };
 let current = 'orders';
 
+const isSuper = me.role === 'superadmin';
 const nav = el('header', { class: 'topbar' },
   el('h1', {}, 'OrderFlow'),
-  cfg.activeEvent ? el('span', { class: 'badge' }, '🎪 ' + cfg.activeEvent.name) : null,
+  me.activeEvent ? el('span', { class: 'badge' }, '🎪 ' + me.activeEvent.name) : null,
+  isSuper ? el('span', { class: 'badge', style: 'background:rgba(255,255,255,.15)' }, '★ ' + t('roleSuper')) : null,
   el('button', {
     class: 'btn-sm btn-ghost', style: 'color:#fff',
     onclick: () => { tokens.clearAdmin(); location.href = 'index.html'; },
@@ -54,6 +56,7 @@ function render() {
   else if (current === 'menu') renderMenu();
   else if (current === 'waiters') renderWaiters();
   else if (current === 'team') renderTeam();
+  else if (current === 'festadmins') renderFestAdmins();
   else renderEvents();
 }
 
@@ -361,9 +364,10 @@ async function renderEvents() {
   ));
 
   for (const e of events) {
-    const tags = el('div', { class: 'row' },
+    const tags = el('div', { class: 'row wrap' },
       e.active ? el('span', { class: 'tag ok' }, t('activeBadge')) : null,
       e.status === 'archived' ? el('span', { class: 'tag muted' }, t('archived')) : null,
+      isSuper && e.owner_name ? el('span', { class: 'tag muted' }, '👤 ' + e.owner_name) : null,
       el('span', { class: 'tag muted' }, e.orders + ' ' + t('ordersCount'))
     );
     const actions = el('div', { class: 'row wrap', style: 'margin-top:.5rem' });
@@ -453,6 +457,68 @@ async function renderStats() {
     s.perProduct.map((r) => [r.name, r.qty, money(r.revenue)])));
   content.append(tableCard(t('perStation'), [t('station'), t('qtySold'), t('revenue')],
     s.perStation.map((r) => [r.station, r.qty, money(r.revenue)])));
+}
+
+// ---------------- Fest-Admins (super-admin only) ----------------
+async function renderFestAdmins() {
+  const admins = await api('/admin/festadmins', { token });
+  content.innerHTML = '';
+
+  const uName = el('input', { placeholder: t('username'), autocapitalize: 'none' });
+  const uPass = el('input', { type: 'password', placeholder: t('password') });
+  const add = async () => {
+    if (!uName.value.trim() || !uPass.value) return;
+    try {
+      await api('/admin/festadmins', { method: 'POST', token, body: { username: uName.value.trim(), password: uPass.value } });
+      uName.value = ''; uPass.value = '';
+      renderFestAdmins();
+    } catch (e) { toast(saErr(e), true); }
+  };
+  content.append(el('div', { class: 'card' },
+    el('h3', {}, t('addFestAdmin')),
+    el('div', { class: 'row wrap' },
+      el('div', { class: 'grow' }, el('label', {}, t('username')), uName),
+      el('div', { class: 'grow' }, el('label', {}, t('password')), uPass),
+      el('button', { class: 'btn-primary', style: 'align-self:flex-end', onclick: add }, '+')
+    )
+  ));
+
+  for (const a of admins) {
+    const self = a.id === me.uid;
+    const roleTag = el('span', { class: 'tag ' + (a.role === 'superadmin' ? 'warn' : 'ok') },
+      a.role === 'superadmin' ? t('roleSuper') : t('roleAdmin'));
+    const actions = el('div', { class: 'row wrap', style: 'margin-top:.5rem' },
+      el('button', { class: 'btn-sm btn-ghost', onclick: async () => {
+        const pw = prompt(t('newPassword'));
+        if (!pw) return;
+        try { await api(`/admin/festadmins/${a.id}`, { method: 'PATCH', token, body: { password: pw } }); toast(t('changePw')); }
+        catch (e) { toast(saErr(e), true); }
+      } }, '🔑 ' + t('changePw')),
+      el('button', { class: 'btn-sm btn-ghost', onclick: async () => {
+        try { await api(`/admin/festadmins/${a.id}`, { method: 'PATCH', token, body: { active: !a.active } }); renderFestAdmins(); }
+        catch (e) { toast(saErr(e), true); }
+      } }, a.active ? '⏻ ' + t('deactivate') : '✓ ' + t('reactivate'))
+    );
+    if (!self) {
+      actions.append(el('button', { class: 'btn-sm btn-ghost', onclick: async () => {
+        if (!confirm(`${a.username}: ${t('deleteFestAdminConfirm')}`)) return;
+        try { await api(`/admin/festadmins/${a.id}`, { method: 'DELETE', token }); renderFestAdmins(); }
+        catch (e) { toast(saErr(e), true); }
+      } }, '🗑'));
+    }
+    content.append(el('div', { class: 'card' },
+      el('div', { class: 'row spread' },
+        el('strong', {}, a.username + (self ? ` (${t('you')})` : '')),
+        el('div', { class: 'row' }, roleTag, el('span', { class: 'tag muted' }, a.events + ' ' + t('eventsCount')), a.active ? null : el('span', { class: 'tag muted' }, '—'))
+      ),
+      actions
+    ));
+  }
+}
+function saErr(e) {
+  if (e.message === 'last_superadmin') return t('cannotDeleteLastSuper');
+  if (e.message === 'username_taken') return t('username') + ' ✗';
+  return e.message;
 }
 
 // Live order updates while on the orders tab.
