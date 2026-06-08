@@ -60,8 +60,8 @@ export function createApp({ runSeed = true } = {}) {
     res.redirect(302, `/waiter.html?c=${encodeURIComponent(req.params.token)}`);
   });
 
-  // Clean URLs for the staff screens.
-  for (const page of ['admin', 'bar', 'kitchen']) {
+  // Clean URLs for the staff screens and legal pages.
+  for (const page of ['admin', 'bar', 'kitchen', 'impressum', 'datenschutz']) {
     app.get(`/${page}`, (req, res) => res.sendFile(path.join(config.publicDir, `${page}.html`)));
   }
 
