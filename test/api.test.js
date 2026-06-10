@@ -324,6 +324,22 @@ test('new events start empty; fest-admin can import/export a menu (CSV)', async 
   assert.equal((await jf('/api/admin/menu', { token: tok })).json.categories[0].id, reversed[0]);
 });
 
+test('idempotent order creation: same clientKey creates only one order', async () => {
+  const admin = await asFest();
+  const w = (await jf('/api/admin/waiters', { method: 'POST', token: admin, body: { name: 'Idem' } })).json;
+  const sess = (await jf('/api/waiters/claim', { method: 'POST', body: { claimToken: new URL(w.link).searchParams.get('c') } })).json.sessionToken;
+  const item = (await jf('/api/menu', { token: sess })).json.categories.flatMap((c) => c.items)[0];
+  const before = (await jf('/api/admin/orders', { token: admin })).json.length;
+
+  const body = { clientKey: 'fixed-key-123', items: [{ articleId: item.id, qty: 1 }] };
+  const r1 = await jf('/api/orders', { method: 'POST', token: sess, body });
+  const r2 = await jf('/api/orders', { method: 'POST', token: sess, body });
+  assert.equal(r1.json.id, r2.json.id, 'same clientKey returns the same order');
+
+  const after = (await jf('/api/admin/orders', { token: admin })).json.length;
+  assert.equal(after, before + 1, 'exactly one order was created');
+});
+
 test('CORS allows cross-origin browser requests with Authorization', async () => {
   const res = await fetch(base + '/api/config', { headers: { Origin: 'https://example.github.io' } });
   assert.equal(res.headers.get('access-control-allow-origin'), 'https://example.github.io');

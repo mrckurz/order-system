@@ -556,6 +556,7 @@ router.post('/orders', requireWaiter, (req, res) => {
     table: req.body?.table,
     note: req.body?.note,
     items: req.body?.items,
+    clientKey: req.body?.clientKey,
   });
   res.status(201).json(order);
 });
