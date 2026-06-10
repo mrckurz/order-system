@@ -482,6 +482,11 @@ router.post('/orders/:id/reprint', requireStaff, asyncH((req, res) => {
   assertEvent(req, eventOfOrder(req.params.id));
   res.json(reprintOrder(Number(req.params.id)));
 }));
+// Re-open a previously completed order at a station (undo "done").
+router.post('/orders/:id/reopen', requireStaff, (req, res) => {
+  assertEvent(req, eventOfOrder(req.params.id));
+  res.json(setOrderStatus(Number(req.params.id), 'open', req.body?.station || null));
+});
 
 // ---------- waiters (within the requester's active event) ----------
 function waiterStatus(w) {

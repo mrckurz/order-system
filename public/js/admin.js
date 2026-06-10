@@ -79,7 +79,7 @@ async function renderOrders() {
     grid.append(
       el('div', { class: 'card order' + (allDone ? '' : ' food') },
         el('h3', {},
-          el('span', {}, `#${o.id}` + (o.table_no ? ` · ${t('table')} ${o.table_no}` : '')),
+          el('span', {}, `#${o.order_no ?? o.id}` + (o.table_no ? ` · ${t('table')} ${o.table_no}` : '')),
           el('span', { class: 'meta' }, time(o.created_at))
         ),
         el('div', { class: 'meta' }, `${o.waiter_name || '—'}`),
