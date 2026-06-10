@@ -152,5 +152,6 @@ th { color: var(--muted); font-weight: 600; }
   color: var(--muted); font-size: 1.2rem; line-height: 1; padding: 0 .4rem;
 }
 .drag-handle:active { cursor: grabbing; }
-.sortable-cat.dragging, .sortable-art.dragging { opacity: .45; }
+.sortable-cat.dragging, .sortable-art.dragging { opacity: .6; }
+.sortable-art.dragging { background: var(--surface-2); border-radius: 8px; }
 .sortable-cat.dragging { outline: 2px dashed var(--brand); }

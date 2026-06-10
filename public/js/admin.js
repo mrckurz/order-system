@@ -215,21 +215,25 @@ function enableDragSort(container, itemSel, handleSel, persist) {
       const item = handle.closest(itemSel);
       if (!item) return;
       e.preventDefault();
-      handle.setPointerCapture(e.pointerId);
       item.classList.add('dragging');
+      let moved = false;
       const move = (ev) => {
+        ev.preventDefault();
+        moved = true;
         const after = dragAfter(container, itemSel, ev.clientY);
         if (!after) container.appendChild(item);
         else if (after !== item) container.insertBefore(item, after);
       };
       const up = () => {
-        handle.removeEventListener('pointermove', move);
+        document.removeEventListener('pointermove', move);
+        document.removeEventListener('pointerup', up);
         item.classList.remove('dragging');
-        persist([...container.querySelectorAll(itemSel)].map((el) => Number(el.dataset.id)));
+        if (moved) persist([...container.querySelectorAll(itemSel)].map((el) => Number(el.dataset.id)));
       };
-      handle.addEventListener('pointermove', move);
-      handle.addEventListener('pointerup', up, { once: true });
-      handle.addEventListener('pointercancel', up, { once: true });
+      // Document-level listeners keep firing even as the dragged node is
+      // re-inserted into the DOM (setPointerCapture would be lost on move).
+      document.addEventListener('pointermove', move, { passive: false });
+      document.addEventListener('pointerup', up);
     });
   }
 }
