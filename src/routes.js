@@ -82,7 +82,7 @@ router.get('/config', (req, res) => {
 });
 
 // ---------- staff login ----------
-router.post('/login', rateLimit({ bucket: 'login', max: 10, windowMs: 60_000 }), (req, res) => {
+router.post('/login', rateLimit({ bucket: 'login', max: 20, windowMs: 60_000 }), (req, res) => {
   const acc = verifyAccount(req.body?.username, req.body?.password);
   if (!acc) return res.status(401).json({ error: 'wrong_credentials' });
   res.json({ token: createSessionToken(acc), role: acc.role, username: acc.username });

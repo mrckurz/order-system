@@ -18,6 +18,7 @@ export const STR = {
     connecting: 'Verbinde…', noOpen: 'Keine offenen Bestellungen', waiterName: 'Kellner',
     qty: 'Anz.', print: 'Druck', share: 'Teilen', allDone: 'Alles erledigt',
     username: 'Benutzername', wrongCredentials: 'Benutzername oder Passwort falsch',
+    tooManyTries: 'Zu viele Versuche – bitte ~1 Minute warten und erneut versuchen.',
     team: 'Team', addAccount: 'Konto hinzufügen', role: 'Rolle',
     roleAdmin: 'Admin', roleStation: 'Schank/Küche', newPassword: 'Neues Passwort',
     deactivate: 'Deaktivieren', you: 'du', lastAdminError: 'Der letzte aktive Admin kann nicht entfernt werden.',
@@ -54,6 +55,7 @@ export const STR = {
     connecting: 'Connecting…', noOpen: 'No open orders', waiterName: 'Waiter',
     qty: 'Qty', print: 'Print', share: 'Share', allDone: 'All done',
     username: 'Username', wrongCredentials: 'Wrong username or password',
+    tooManyTries: 'Too many attempts – please wait ~1 minute and try again.',
     team: 'Team', addAccount: 'Add account', role: 'Role',
     roleAdmin: 'Admin', roleStation: 'Bar/Kitchen', newPassword: 'New password',
     deactivate: 'Deactivate', you: 'you', lastAdminError: 'You cannot remove the last active admin.',
@@ -186,18 +188,23 @@ export function registerSW() {
   }
 }
 
-// Ensure we hold a valid staff token (admin or station). Shows a login box if
-// not. Resolves with { token, role }. `minRole` = 'admin' restricts to admin.
+// Does `role` satisfy the required minimum? Super-admin counts as admin.
+function roleSatisfies(role, minRole) {
+  if (minRole === 'admin') return role === 'admin' || role === 'superadmin';
+  return ['superadmin', 'admin', 'station'].includes(role);
+}
+
+// Ensure we hold a valid staff token. Shows a login box if not.
+// Resolves with { token, role }. `minRole` = 'admin' restricts to admins/super-admins.
 export async function ensureStaff({ minRole = 'station', title = 'Login' } = {}) {
   const existing = tokens.admin();
   if (existing) {
     try {
       const who = await api('/whoami', { token: existing });
-      if (minRole === 'admin' && who.role !== 'admin') {
-        tokens.clearAdmin();
-      } else {
+      if (roleSatisfies(who.role, minRole)) {
         return { token: existing, role: who.role };
       }
+      tokens.clearAdmin();
     } catch {
       tokens.clearAdmin();
     }
@@ -211,15 +218,15 @@ export async function ensureStaff({ minRole = 'station', title = 'Login' } = {})
       err.textContent = '';
       try {
         const r = await api('/login', { method: 'POST', body: { username: userI.value.trim(), password: passI.value } });
-        if (minRole === 'admin' && r.role !== 'admin') {
+        if (!roleSatisfies(r.role, minRole)) {
           err.textContent = t('wrongCredentials');
           return;
         }
         tokens.setAdmin(r.token);
         document.body.innerHTML = '';
         resolve({ token: r.token, role: r.role, username: r.username });
-      } catch {
-        err.textContent = t('wrongCredentials');
+      } catch (e) {
+        err.textContent = e.status === 429 ? t('tooManyTries') : t('wrongCredentials');
       }
     };
     passI.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
