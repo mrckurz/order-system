@@ -108,6 +108,7 @@ function ensureColumn(table, col, ddl) {
 ensureColumn('categories', 'event_id', 'event_id INTEGER');
 ensureColumn('waiters', 'event_id', 'event_id INTEGER');
 ensureColumn('orders', 'event_id', 'event_id INTEGER');
+ensureColumn('orders', 'order_no', 'order_no INTEGER');
 ensureColumn('events', 'owner_id', 'owner_id INTEGER');
 ensureColumn('accounts', 'owner_id', 'owner_id INTEGER');
 ensureColumn('accounts', 'active_event_id', 'active_event_id INTEGER');

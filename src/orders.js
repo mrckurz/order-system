@@ -30,7 +30,7 @@ export function createOrder({ waiterId, eventId, table, note, items }) {
       WHERE a.id = ? AND a.active = 1 AND c.event_id = ?`
   );
   const insOrder = db.prepare(
-    'INSERT INTO orders (event_id, waiter_id, table_no, note, created_at) VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO orders (event_id, order_no, waiter_id, table_no, note, created_at) VALUES (?, ?, ?, ?, ?, ?)'
   );
   const insItem = db.prepare(
     `INSERT INTO order_items (order_id, article_id, name, price, qty, station, note)
@@ -38,8 +38,11 @@ export function createOrder({ waiterId, eventId, table, note, items }) {
   );
 
   const tx = db.transaction(() => {
+    // Sequential per-event order number (1, 2, 3, …).
+    const orderNo = db.prepare('SELECT COALESCE(MAX(order_no), 0) + 1 AS n FROM orders WHERE event_id = ?').get(eventId ?? null).n;
     const { lastInsertRowid: orderId } = insOrder.run(
       eventId ?? null,
+      orderNo,
       waiterId ?? null,
       table ? String(table) : null,
       note ? String(note) : null,
@@ -78,7 +81,7 @@ function triggerPrints(order) {
   }
   for (const [station, items] of byStation) {
     printTicket({
-      orderId: order.id,
+      orderId: order.order_no ?? order.id,
       stationLabel: labels[station] || station,
       waiter: order.waiter_name,
       table: order.table_no,
@@ -91,22 +94,30 @@ function triggerPrints(order) {
 
 // Open items for a station, grouped by order, newest-arriving last
 // (so the display naturally reflects arrival order).
-export function getStationQueue(station, eventId) {
-  const orders = db
+// Open + recently-done orders for a station. Open orders first (newest on top),
+// done orders below (kept on screen, capped to the most recent `doneLimit`).
+export function getStationQueue(station, eventId, { doneLimit = 25 } = {}) {
+  const rows = db
     .prepare(
-      `SELECT DISTINCT o.id, o.table_no, o.note, o.created_at, w.name AS waiter_name
+      `SELECT o.id, o.order_no, o.table_no, o.note, o.created_at, w.name AS waiter_name,
+              MIN(CASE WHEN i.status = 'open' THEN 0 ELSE 1 END) AS all_done
          FROM orders o
          JOIN order_items i ON i.order_id = o.id
          LEFT JOIN waiters w ON w.id = o.waiter_id
-        WHERE i.station = ? AND i.status = 'open' AND o.event_id = ?
-        ORDER BY o.created_at ASC`
+        WHERE i.station = ? AND o.event_id = ?
+        GROUP BY o.id
+        ORDER BY all_done ASC, o.created_at DESC`
     )
     .all(station, eventId);
-  const itemsStmt = db.prepare(
-    "SELECT * FROM order_items WHERE order_id = ? AND station = ? ORDER BY id"
-  );
-  for (const o of orders) o.items = itemsStmt.all(o.id, station);
-  return orders;
+  const itemsStmt = db.prepare("SELECT * FROM order_items WHERE order_id = ? AND station = ? ORDER BY id");
+  const open = [];
+  const done = [];
+  for (const o of rows) {
+    o.done = !!o.all_done;
+    o.items = itemsStmt.all(o.id, station);
+    (o.done ? done : open).push(o);
+  }
+  return [...open, ...done.slice(0, doneLimit)];
 }
 
 export function setItemStatus(itemId, status) {
@@ -137,6 +148,22 @@ export function reprintOrder(orderId) {
   if (!order) throw Object.assign(new Error('order not found'), { status: 404 });
   triggerPrints(order);
   return order;
+}
+
+// Backfill sequential per-event order numbers for any orders missing one.
+export function backfillOrderNumbers() {
+  const evs = db.prepare('SELECT DISTINCT event_id FROM orders WHERE order_no IS NULL AND event_id IS NOT NULL').all();
+  if (!evs.length) return;
+  db.transaction(() => {
+    const upd = db.prepare('UPDATE orders SET order_no = ? WHERE id = ?');
+    for (const { event_id } of evs) {
+      // continue after any numbers that already exist in this event
+      let n = db.prepare('SELECT COALESCE(MAX(order_no), 0) AS n FROM orders WHERE event_id = ?').get(event_id).n;
+      for (const r of db.prepare('SELECT id FROM orders WHERE event_id = ? AND order_no IS NULL ORDER BY id').all(event_id)) {
+        upd.run(++n, r.id);
+      }
+    }
+  })();
 }
 
 // All orders of an event for the admin overview (most recent first).

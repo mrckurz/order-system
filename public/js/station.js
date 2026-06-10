@@ -29,16 +29,17 @@ export async function startStation({ station, titleKey, accentClass = '', showRe
 
   function render() {
     queueEl.innerHTML = '';
-    countEl.textContent = String(orders.length);
+    countEl.textContent = String(orders.filter((o) => !o.done).length); // open count
     if (!orders.length) {
       queueEl.append(el('div', { class: 'empty-state' }, t('noOpen')));
       return;
     }
     for (const o of orders) {
-      const card = el('div', { class: `card order ${accentClass}` },
+      const num = o.order_no ?? o.id;
+      const card = el('div', { class: `card order ${accentClass}` + (o.done ? ' order-done' : '') },
         el('h3', {},
-          el('span', {}, `#${o.id}` + (o.table_no ? ` · ${t('table')} ${o.table_no}` : '')),
-          el('span', { class: 'meta' }, time(o.created_at))
+          el('span', {}, `#${num}` + (o.table_no ? ` · ${t('table')} ${o.table_no}` : '')),
+          el('span', { class: 'meta' }, o.done ? '✓ ' + t('done') : time(o.created_at))
         ),
         el('div', { class: 'meta' }, `${t('waiterName')}: ${o.waiter_name || '—'}`),
         o.note ? el('div', { class: 'tag warn', style: 'margin:.3rem 0' }, o.note) : null,
@@ -53,7 +54,9 @@ export async function startStation({ station, titleKey, accentClass = '', showRe
           showReprint
             ? el('button', { class: 'btn-sm btn-ghost', onclick: () => reprint(o.id) }, '🖨 ' + t('reprint'))
             : null,
-          el('button', { class: 'btn-sm btn-ok grow', onclick: () => markOrder(o.id) }, '✓ ' + t('allDone'))
+          o.done
+            ? el('button', { class: 'btn-sm btn-ghost grow', onclick: () => reopenOrder(o.id) }, '↩ ' + t('reopenEvent'))
+            : el('button', { class: 'btn-sm btn-ok grow', onclick: () => markOrder(o.id) }, '✓ ' + t('allDone'))
         )
       );
       queueEl.append(card);
@@ -70,6 +73,10 @@ export async function startStation({ station, titleKey, accentClass = '', showRe
   }
   async function markOrder(id) {
     await api(`/orders/${id}/done`, { method: 'POST', token, body: { station } });
+    await load();
+  }
+  async function reopenOrder(id) {
+    await api(`/orders/${id}/reopen`, { method: 'POST', token, body: { station } });
     await load();
   }
   async function reprint(id) {

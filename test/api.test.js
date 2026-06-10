@@ -185,14 +185,22 @@ test('full order lifecycle: create waiter, single-use claim, order, station queu
   assert.equal(order.status, 201);
   assert.equal(order.json.total, foodItem.price * 2 + drinkItem.price);
   assert.equal(order.json.waiter_name, 'Berta');
+  assert.equal(order.json.order_no, 1, 'first order of the event is #1');
 
   const foodQ = (await jf('/api/stations/food/queue', { token: admin })).json;
   assert.equal(foodQ[0].items[0].station, 'food');
   const drinkQ = (await jf('/api/stations/drinks/queue', { token: admin })).json;
   assert.equal(drinkQ[0].items[0].station, 'drinks');
 
+  // marking done keeps the order on the station screen, flagged done
   await jf(`/api/orders/${order.json.id}/done`, { method: 'POST', token: admin, body: { station: 'food' } });
-  assert.equal((await jf('/api/stations/food/queue', { token: admin })).json.length, 0);
+  const foodQ2 = (await jf('/api/stations/food/queue', { token: admin })).json;
+  const fo = foodQ2.find((o) => o.id === order.json.id);
+  assert.ok(fo && fo.done === true, 'done order stays, marked done');
+
+  // and can be reopened
+  await jf(`/api/orders/${order.json.id}/reopen`, { method: 'POST', token: admin, body: { station: 'food' } });
+  assert.equal((await jf('/api/stations/food/queue', { token: admin })).json.find((o) => o.id === order.json.id).done, false);
 });
 
 test('reset clears orders but keeps menu and accounts', async () => {

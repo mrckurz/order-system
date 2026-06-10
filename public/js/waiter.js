@@ -83,8 +83,8 @@ $('logoutBtn').addEventListener('click', () => {
 });
 $('sendLabel').textContent = t('send');
 $('clearBtn').textContent = t('clear');
-$('tableInput').placeholder = t('table');
-$('noteInput').placeholder = t('note');
+$('tableInput').placeholder = t('table') + ' (optional)';
+$('noteInput').placeholder = t('note') + ' (optional)';
 
 const menu = await api('/menu', { token });
 
@@ -162,7 +162,16 @@ function renderCart() {
     );
   }
   $('cartTotal').textContent = money(cartTotal());
+  updateCartSpacing();
 }
+
+// Reserve exactly as much space at the bottom of the menu as the cart bar
+// occupies, so every menu item stays reachable by scrolling.
+function updateCartSpacing() {
+  const bar = $('cartBar');
+  $('app').style.paddingBottom = (bar.hidden ? 24 : bar.offsetHeight + 24) + 'px';
+}
+window.addEventListener('resize', updateCartSpacing);
 
 $('clearBtn').addEventListener('click', () => {
   cart.clear();
