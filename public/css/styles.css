@@ -145,3 +145,12 @@ th { color: var(--muted); font-weight: 600; }
 .empty-state { text-align: center; color: var(--muted); padding: 3rem 1rem; }
 .flash { animation: flash 1s ease; }
 @keyframes flash { from { background: rgba(46,134,222,.4); } to { background: var(--surface); } }
+
+/* drag-to-reorder */
+.drag-handle {
+  cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+  color: var(--muted); font-size: 1.2rem; line-height: 1; padding: 0 .4rem;
+}
+.drag-handle:active { cursor: grabbing; }
+.sortable-cat.dragging, .sortable-art.dragging { opacity: .45; }
+.sortable-cat.dragging { outline: 2px dashed var(--brand); }
