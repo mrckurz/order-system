@@ -207,7 +207,7 @@ test('reset clears orders but keeps menu and accounts', async () => {
 });
 
 test('revoked waiter token is rejected', async () => {
-  const admin = await asAdmin();
+  const admin = await asFest();
   const w = (await jf('/api/admin/waiters', { method: 'POST', token: admin, body: { name: 'Cilli' } })).json;
   const claimToken = new URL(w.link).searchParams.get('c');
   const sess = (await jf('/api/waiters/claim', { method: 'POST', body: { claimToken } })).json.sessionToken;
@@ -231,7 +231,7 @@ test('security headers are present', async () => {
 });
 
 test('waiter link uses the static ?c= form and /w redirects', async () => {
-  const admin = await asAdmin();
+  const admin = await asFest();
   const w = (await jf('/api/admin/waiters', { method: 'POST', token: admin, body: { name: 'Dora' } })).json;
   const url = new URL(w.link);
   assert.ok(url.pathname.endsWith('/waiter.html'));
@@ -286,6 +286,29 @@ test('per-event statistics and CSV export', async () => {
   assert.match(res.headers.get('content-type'), /text\/csv/);
   const csv = await res.text();
   assert.match(csv, /order_id,datetime,waiter/);
+});
+
+test('new events start empty; fest-admin can import/export a menu (CSV)', async () => {
+  const su = await asSuper();
+  await jf('/api/admin/festadmins', { method: 'POST', token: su, body: { username: 'importer', password: 'imp-pw' } });
+  const tok = (await login('importer', 'imp-pw')).json.token;
+  await jf('/api/admin/events', { method: 'POST', token: tok, body: { name: 'Import Fest' } }); // no seedMenu -> empty
+  assert.equal((await jf('/api/admin/menu', { token: tok })).json.categories.length, 0);
+
+  const csv = 'Kategorie;Artikel;Preis;Station;Aktiv\nGetränke;0,5l Bier;4,50;drinks;1\nSpeisen;Bratwurst;3.50;food;1';
+  const imp = await jf('/api/admin/menu/import', { method: 'POST', token: tok, body: { csv } });
+  assert.equal(imp.status, 200);
+  assert.equal(imp.json.imported, 2);
+
+  const cats = (await jf('/api/admin/menu', { token: tok })).json.categories;
+  assert.equal(cats.length, 2);
+  const bier = cats.flatMap((c) => c.items).find((i) => i.name === '0,5l Bier');
+  assert.equal(bier.price, 4.5);
+  assert.equal(bier.station, 'drinks');
+
+  const res = await fetch(base + '/api/admin/menu/export.csv', { headers: { Authorization: `Bearer ${tok}` } });
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /0,5l Bier/);
 });
 
 test('CORS allows cross-origin browser requests with Authorization', async () => {

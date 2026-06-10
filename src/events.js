@@ -136,23 +136,27 @@ function setGlobalActive(id) {
   ).run(String(id));
 }
 
-// First-run + legacy migration: ensure an event exists; attach orphan rows.
-export function ensureFirstEvent(defaultName = 'Mein Fest') {
-  if (countEvents() === 0) {
-    const { lastInsertRowid: id } = db
-      .prepare("INSERT INTO events (name, status, created_at) VALUES (?, 'active', ?)")
-      .run(defaultName, Date.now());
-    db.prepare('UPDATE categories SET event_id = ? WHERE event_id IS NULL').run(id);
-    db.prepare('UPDATE waiters SET event_id = ? WHERE event_id IS NULL').run(id);
-    db.prepare('UPDATE orders SET event_id = ? WHERE event_id IS NULL').run(id);
-    setGlobalActive(id);
-    return id;
-  }
-  if (getGlobalActiveId() == null) {
-    const e = db.prepare("SELECT id FROM events ORDER BY (status = 'active') DESC, created_at DESC LIMIT 1").get();
-    if (e) setGlobalActive(e.id);
-  }
-  return getGlobalActiveId();
+// Legacy rescue ONLY: if a pre-events database has orphan rows (event_id IS NULL),
+// move them into one holding event so nothing is lost. On a clean database this
+// does nothing — no empty "default" event is created and no menu is seeded.
+export function ensureFirstEvent(holdingName = 'Migriertes Fest') {
+  const orphans = db
+    .prepare(
+      `SELECT (SELECT COUNT(*) FROM categories WHERE event_id IS NULL)
+            + (SELECT COUNT(*) FROM waiters    WHERE event_id IS NULL)
+            + (SELECT COUNT(*) FROM orders     WHERE event_id IS NULL) AS n`
+    )
+    .get().n;
+  if (orphans === 0) return null;
+
+  let target = db.prepare('SELECT id FROM events ORDER BY id LIMIT 1').get();
+  let id = target ? target.id : db
+    .prepare("INSERT INTO events (name, status, created_at) VALUES (?, 'active', ?)")
+    .run(holdingName, Date.now()).lastInsertRowid;
+  db.prepare('UPDATE categories SET event_id = ? WHERE event_id IS NULL').run(id);
+  db.prepare('UPDATE waiters SET event_id = ? WHERE event_id IS NULL').run(id);
+  db.prepare('UPDATE orders SET event_id = ? WHERE event_id IS NULL').run(id);
+  return id;
 }
 
 // Tenancy migration: ensure a superadmin exists, give every event an owner,
