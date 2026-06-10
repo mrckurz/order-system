@@ -265,27 +265,23 @@ async function renderTeam() {
   const accounts = await api('/admin/accounts', { token });
   content.innerHTML = '';
 
-  // Add account
+  // Add a Bar/Kitchen (station) login
   const uName = el('input', { placeholder: t('username'), autocapitalize: 'none' });
   const uPass = el('input', { type: 'password', placeholder: t('password') });
-  const uRole = el('select', {},
-    el('option', { value: 'admin' }, t('roleAdmin')),
-    el('option', { value: 'station' }, t('roleStation'))
-  );
   const add = async () => {
     if (!uName.value.trim() || !uPass.value) return;
     try {
-      await api('/admin/accounts', { method: 'POST', token, body: { username: uName.value.trim(), password: uPass.value, role: uRole.value } });
+      await api('/admin/accounts', { method: 'POST', token, body: { username: uName.value.trim(), password: uPass.value } });
       uName.value = ''; uPass.value = '';
       renderTeam();
     } catch (e) { toast(errMsg(e), true); }
   };
   content.append(el('div', { class: 'card' },
-    el('h3', {}, t('addAccount')),
+    el('h3', {}, t('stationsTitle')),
+    el('p', { class: 'muted', style: 'margin:.2rem 0 .6rem;font-size:.9rem' }, t('stationsHint')),
     el('div', { class: 'row wrap' },
       el('div', { class: 'grow' }, el('label', {}, t('username')), uName),
       el('div', { class: 'grow' }, el('label', {}, t('password')), uPass),
-      el('div', {}, el('label', {}, t('role')), uRole),
       el('button', { class: 'btn-primary', style: 'align-self:flex-end', onclick: add }, '+')
     )
   ));
