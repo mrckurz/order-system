@@ -186,6 +186,19 @@ async function downloadMenuCsv() {
   URL.revokeObjectURL(url);
 }
 
+// Reorder helpers: swap an item with its neighbour and persist the new order.
+const moveArr = (arr, i, dir) => {
+  const j = i + dir;
+  if (j < 0 || j >= arr.length) return null;
+  const a = arr.slice();
+  [a[i], a[j]] = [a[j], a[i]];
+  return a;
+};
+async function reorder(path, ids) {
+  await api(path, { method: 'POST', token, body: { ids } });
+  renderMenu();
+}
+
 async function renderMenu() {
   const data = await api('/admin/menu', { token });
   content.innerHTML = '';
@@ -237,18 +250,22 @@ async function renderMenu() {
     )
   ));
 
-  for (const cat of data.categories) {
+  data.categories.forEach((cat, ci) => {
     const card = el('div', { class: 'card' });
     card.append(el('div', { class: 'row spread' },
       el('strong', {}, cat.name),
-      el('button', { class: 'btn-sm btn-ghost', onclick: async () => {
-        if (!confirm(`${t('remove')} "${cat.name}"?`)) return;
-        await api(`/admin/categories/${cat.id}`, { method: 'DELETE', token });
-        renderMenu();
-      } }, '🗑')
+      el('div', { class: 'row' },
+        el('button', { class: 'btn-sm btn-ghost', onclick: () => { const ids = moveArr(data.categories.map((c) => c.id), ci, -1); if (ids) reorder('/admin/categories/reorder', ids); } }, '↑'),
+        el('button', { class: 'btn-sm btn-ghost', onclick: () => { const ids = moveArr(data.categories.map((c) => c.id), ci, 1); if (ids) reorder('/admin/categories/reorder', ids); } }, '↓'),
+        el('button', { class: 'btn-sm btn-ghost', onclick: async () => {
+          if (!confirm(`${t('remove')} "${cat.name}"?`)) return;
+          await api(`/admin/categories/${cat.id}`, { method: 'DELETE', token });
+          renderMenu();
+        } }, '🗑')
+      )
     ));
 
-    for (const a of cat.items) {
+    cat.items.forEach((a, ai) => {
       const nameI = el('input', { value: a.name, class: 'grow' });
       const priceI = el('input', { type: 'number', step: '0.10', value: a.price, style: 'max-width:90px' });
       const stationS = el('select', { style: 'max-width:130px' }, ...stationOpts(a.station));
@@ -263,13 +280,15 @@ async function renderMenu() {
         nameI, priceI, euro(), stationS,
         el('label', { style: 'margin:0;display:flex;align-items:center;gap:.3rem' }, activeC, t('activeShort')),
         el('button', { class: 'btn-sm btn-primary', onclick: save }, t('save')),
+        el('button', { class: 'btn-sm btn-ghost', onclick: () => { const ids = moveArr(cat.items.map((x) => x.id), ai, -1); if (ids) reorder('/admin/articles/reorder', ids); } }, '↑'),
+        el('button', { class: 'btn-sm btn-ghost', onclick: () => { const ids = moveArr(cat.items.map((x) => x.id), ai, 1); if (ids) reorder('/admin/articles/reorder', ids); } }, '↓'),
         el('button', { class: 'btn-sm btn-ghost', onclick: async () => {
           if (!confirm(`${t('remove')} "${a.name}"?`)) return;
           await api(`/admin/articles/${a.id}`, { method: 'DELETE', token });
           renderMenu();
         } }, '🗑')
       ));
-    }
+    });
 
     // add article to this category
     const newName = el('input', { placeholder: t('addArticle'), class: 'grow' });
@@ -285,7 +304,7 @@ async function renderMenu() {
       } }, '+')
     ));
     content.append(card);
-  }
+  });
 }
 
 // ---------------- Team (accounts) + reset ----------------
