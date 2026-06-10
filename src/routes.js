@@ -295,11 +295,23 @@ router.delete('/admin/festadmins/:id', requireSuperadmin, (req, res) => {
 router.get('/admin/events', requireAdmin, (req, res) => res.json(listEventsFor(req.staff)));
 
 router.post('/admin/events', requireAdmin, (req, res) => {
+  // The super-admin is oversight-only; festivals are created & run by fest-admins.
+  if (req.staff.role === 'superadmin') return res.status(403).json({ error: 'superadmin_oversight_only' });
   const { name, copyMenuFrom, seedMenu, activate = true } = req.body || {};
   if (copyMenuFrom) assertEvent(req, copyMenuFrom);
   const ev = createEvent({ name, owner: req.staff, copyFromEventId: copyMenuFrom || null, activate });
   if (!copyMenuFrom && seedMenu !== false) seedEventMenu(ev.id);
   res.status(201).json(ev);
+});
+
+// Super-admin: hand an event to a fest-admin (transfer ownership).
+router.patch('/admin/events/:id/owner', requireSuperadmin, (req, res) => {
+  const ev = getEvent(Number(req.params.id));
+  if (!ev) return res.status(404).json({ error: 'not_found' });
+  const owner = getAccountById(Number(req.body?.ownerId));
+  if (!owner || !['admin', 'superadmin'].includes(owner.role)) return res.status(400).json({ error: 'invalid_owner' });
+  db.prepare('UPDATE events SET owner_id = ? WHERE id = ?').run(owner.id, ev.id);
+  res.json(getEvent(ev.id));
 });
 
 router.post('/admin/events/:id/activate', requireAdmin, (req, res) => {
