@@ -20,7 +20,13 @@ export function hydrateOrder(orderId) {
 // Create an order from a waiter. `items` = [{ articleId, qty, note }].
 // The order is recorded under `eventId` and only articles belonging to that
 // event's menu are accepted.
-export function createOrder({ waiterId, eventId, table, note, items }) {
+export function createOrder({ waiterId, eventId, table, note, items, clientKey }) {
+  // Idempotency: if this client key was already accepted, return that order
+  // instead of creating a duplicate (safe re-sends after a dropped connection).
+  if (clientKey) {
+    const existing = db.prepare('SELECT id FROM orders WHERE client_key = ?').get(clientKey);
+    if (existing) return hydrateOrder(existing.id);
+  }
   if (!Array.isArray(items) || items.length === 0) {
     throw Object.assign(new Error('order has no items'), { status: 400 });
   }
@@ -30,7 +36,7 @@ export function createOrder({ waiterId, eventId, table, note, items }) {
       WHERE a.id = ? AND a.active = 1 AND c.event_id = ?`
   );
   const insOrder = db.prepare(
-    'INSERT INTO orders (event_id, order_no, waiter_id, table_no, note, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO orders (event_id, order_no, waiter_id, table_no, note, client_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
   const insItem = db.prepare(
     `INSERT INTO order_items (order_id, article_id, name, price, qty, station, note)
@@ -46,6 +52,7 @@ export function createOrder({ waiterId, eventId, table, note, items }) {
       waiterId ?? null,
       table ? String(table) : null,
       note ? String(note) : null,
+      clientKey || null,
       Date.now()
     );
     for (const line of items) {
@@ -57,7 +64,17 @@ export function createOrder({ waiterId, eventId, table, note, items }) {
     return orderId;
   });
 
-  const orderId = tx();
+  let orderId;
+  try {
+    orderId = tx();
+  } catch (e) {
+    // Lost the idempotency race (same key inserted concurrently) — return existing.
+    if (clientKey && String(e.message).includes('UNIQUE')) {
+      const ex = db.prepare('SELECT id FROM orders WHERE client_key = ?').get(clientKey);
+      if (ex) return hydrateOrder(ex.id);
+    }
+    throw e;
+  }
   const order = hydrateOrder(orderId);
 
   emitNewOrder(order);

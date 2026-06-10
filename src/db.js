@@ -109,6 +109,7 @@ ensureColumn('categories', 'event_id', 'event_id INTEGER');
 ensureColumn('waiters', 'event_id', 'event_id INTEGER');
 ensureColumn('orders', 'event_id', 'event_id INTEGER');
 ensureColumn('orders', 'order_no', 'order_no INTEGER');
+ensureColumn('orders', 'client_key', 'client_key TEXT');
 ensureColumn('events', 'owner_id', 'owner_id INTEGER');
 ensureColumn('accounts', 'owner_id', 'owner_id INTEGER');
 ensureColumn('accounts', 'active_event_id', 'active_event_id INTEGER');
@@ -119,6 +120,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_waiters_event  ON waiters(event_id);
   CREATE INDEX IF NOT EXISTS idx_events_owner   ON events(owner_id);
   CREATE INDEX IF NOT EXISTS idx_accounts_owner ON accounts(owner_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_clientkey ON orders(client_key) WHERE client_key IS NOT NULL;
 `);
 
 export default db;

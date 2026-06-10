@@ -179,30 +179,74 @@ $('clearBtn').addEventListener('click', () => {
   syncTiles();
 });
 
-$('sendBtn').addEventListener('click', async () => {
-  if (cart.size === 0) return;
-  const items = [...cart.values()].map(({ article, qty }) => ({ articleId: article.id, qty }));
-  $('sendBtn').disabled = true;
+// ---- Offline order queue (survives WiFi drops; auto-resends) ----
+// Orders are buffered in localStorage with a client key for idempotency, so a
+// dropped connection never loses an order and a re-send never duplicates one.
+const PENDING_KEY = 'orderflow.pending.' + me.id;
+const newKey = () => (crypto.randomUUID ? crypto.randomUUID() : `${me.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+function getPending() { try { return JSON.parse(localStorage.getItem(PENDING_KEY)) || []; } catch { return []; } }
+function setPending(arr) { localStorage.setItem(PENDING_KEY, JSON.stringify(arr)); updatePendingBadge(); }
+function updatePendingBadge() {
+  const n = getPending().length;
+  const b = $('pending');
+  b.hidden = n === 0;
+  b.textContent = '⏳ ' + n;
+  b.style.background = navigator.onLine ? 'rgba(255,255,255,.2)' : 'var(--warn)';
+}
+
+let flushing = false;
+async function flushQueue() {
+  if (flushing) return;
+  flushing = true;
   try {
-    await api('/orders', {
-      method: 'POST',
-      token,
-      body: { table: $('tableInput').value.trim(), note: $('noteInput').value.trim(), items },
-    });
-    cart.clear();
-    $('tableInput').value = '';
-    $('noteInput').value = '';
-    renderCart();
-    syncTiles();
-    toast(t('sent'));
-  } catch (e) {
-    toast(e.message, true);
+    let q = getPending();
+    while (q.length) {
+      try {
+        await api('/orders', { method: 'POST', token, body: q[0] });
+      } catch (e) {
+        // permanent client error (e.g. article removed): drop it, inform; otherwise keep & retry later
+        if (e.status >= 400 && e.status < 500 && e.status !== 429) {
+          q.shift(); setPending(q);
+          toast(e.message, true);
+          continue;
+        }
+        break; // network / server / rate limit → try again later
+      }
+      q.shift(); setPending(q);
+    }
   } finally {
-    $('sendBtn').disabled = false;
+    flushing = false;
+    updatePendingBadge();
   }
+}
+
+$('sendBtn').addEventListener('click', () => {
+  if (cart.size === 0) return;
+  const order = {
+    clientKey: newKey(),
+    table: $('tableInput').value.trim(),
+    note: $('noteInput').value.trim(),
+    items: [...cart.values()].map(({ article, qty }) => ({ articleId: article.id, qty })),
+  };
+  setPending([...getPending(), order]); // accept immediately (persisted locally)
+  cart.clear();
+  $('tableInput').value = '';
+  $('noteInput').value = '';
+  renderCart();
+  syncTiles();
+  toast(navigator.onLine ? t('sent') : t('savedOffline'));
+  flushQueue();
 });
+
+// Resend triggers: on load, when back online, and periodically while pending.
+updatePendingBadge();
+flushQueue();
+window.addEventListener('online', () => { updatePendingBadge(); flushQueue(); });
+window.addEventListener('offline', updatePendingBadge);
+setInterval(() => { if (getPending().length) flushQueue(); }, 15000);
 
 // ---- Realtime confirmation (keeps the waiter session "alive" on the server) ----
 connectSocket({ token, room: 'waiter', on: {
   'order:confirmed': () => {},
+  connect: flushQueue,
 } });
