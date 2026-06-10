@@ -3,14 +3,16 @@
 // drops. API calls and Socket.IO are always network-only (never cached) so
 // orders are never stale. Paths are relative so the same SW works whether the
 // app is served at the domain root (backend) or a subpath (GitHub Pages).
-const CACHE = 'orderflow-shell-v2';
+const CACHE = 'orderflow-shell-v3';
 const SHELL = [
   './',
   'index.html',
   'waiter.html',
   'config.js',
   'css/styles.css',
+  'css/landing.css',
   'js/common.js',
+  'js/index.js',
   'js/waiter.js',
   'manifest.webmanifest',
   'icons/icon-192.png',
