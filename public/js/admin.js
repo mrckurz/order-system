@@ -199,6 +199,41 @@ async function reorder(path, ids) {
   renderMenu();
 }
 
+// Pointer-based drag sorting (works with mouse and touch).
+function dragAfter(container, itemSel, y) {
+  let best = { offset: -Infinity, el: null };
+  for (const child of container.querySelectorAll(itemSel + ':not(.dragging)')) {
+    const box = child.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > best.offset) best = { offset, el: child };
+  }
+  return best.el;
+}
+function enableDragSort(container, itemSel, handleSel, persist) {
+  for (const handle of container.querySelectorAll(handleSel)) {
+    handle.addEventListener('pointerdown', (e) => {
+      const item = handle.closest(itemSel);
+      if (!item) return;
+      e.preventDefault();
+      handle.setPointerCapture(e.pointerId);
+      item.classList.add('dragging');
+      const move = (ev) => {
+        const after = dragAfter(container, itemSel, ev.clientY);
+        if (!after) container.appendChild(item);
+        else if (after !== item) container.insertBefore(item, after);
+      };
+      const up = () => {
+        handle.removeEventListener('pointermove', move);
+        item.classList.remove('dragging');
+        persist([...container.querySelectorAll(itemSel)].map((el) => Number(el.dataset.id)));
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up, { once: true });
+      handle.addEventListener('pointercancel', up, { once: true });
+    });
+  }
+}
+
 async function renderMenu() {
   const data = await api('/admin/menu', { token });
   content.innerHTML = '';
@@ -250,10 +285,16 @@ async function renderMenu() {
     )
   ));
 
+  const catBox = el('div');
+  content.append(catBox);
+
   data.categories.forEach((cat, ci) => {
-    const card = el('div', { class: 'card' });
+    const card = el('div', { class: 'card sortable-cat', 'data-id': cat.id });
     card.append(el('div', { class: 'row spread' },
-      el('strong', {}, cat.name),
+      el('div', { class: 'row' },
+        el('span', { class: 'drag-handle cat-handle', title: 'Ziehen / Drag' }, '⠿'),
+        el('strong', {}, cat.name)
+      ),
       el('div', { class: 'row' },
         el('button', { class: 'btn-sm btn-ghost', onclick: () => { const ids = moveArr(data.categories.map((c) => c.id), ci, -1); if (ids) reorder('/admin/categories/reorder', ids); } }, '↑'),
         el('button', { class: 'btn-sm btn-ghost', onclick: () => { const ids = moveArr(data.categories.map((c) => c.id), ci, 1); if (ids) reorder('/admin/categories/reorder', ids); } }, '↓'),
@@ -264,6 +305,9 @@ async function renderMenu() {
         } }, '🗑')
       )
     ));
+
+    const artBox = el('div');
+    card.append(artBox);
 
     cat.items.forEach((a, ai) => {
       const nameI = el('input', { value: a.name, class: 'grow' });
@@ -276,7 +320,8 @@ async function renderMenu() {
         } });
         toast(t('save'));
       };
-      card.append(el('div', { class: 'row wrap', style: 'border-top:1px solid var(--border);padding-top:.5rem;margin-top:.5rem' },
+      artBox.append(el('div', { class: 'row wrap sortable-art', 'data-id': a.id, style: 'border-top:1px solid var(--border);padding-top:.5rem;margin-top:.5rem' },
+        el('span', { class: 'drag-handle art-handle' }, '⠿'),
         nameI, priceI, euro(), stationS,
         el('label', { style: 'margin:0;display:flex;align-items:center;gap:.3rem' }, activeC, t('activeShort')),
         el('button', { class: 'btn-sm btn-primary', onclick: save }, t('save')),
@@ -303,8 +348,11 @@ async function renderMenu() {
         renderMenu();
       } }, '+')
     ));
-    content.append(card);
+    catBox.append(card);
+    enableDragSort(artBox, '.sortable-art', '.art-handle', (ids) => reorder('/admin/articles/reorder', ids));
   });
+
+  enableDragSort(catBox, '.sortable-cat', '.cat-handle', (ids) => reorder('/admin/categories/reorder', ids));
 }
 
 // ---------------- Team (accounts) + reset ----------------
