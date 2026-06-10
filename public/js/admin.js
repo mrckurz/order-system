@@ -17,12 +17,16 @@ function toast(msg, err = false) {
 }
 
 document.body.innerHTML = '';
-const tabs = ['orders', 'stats', 'menu', 'waiters', 'team', 'events', ...(isSuper ? ['festadmins'] : [])];
+// Super-admin is oversight-only (users + their events + stats);
+// fest-admins get the full operational set.
+const tabs = isSuper
+  ? ['festadmins', 'stats']
+  : ['orders', 'stats', 'menu', 'waiters', 'team', 'events'];
 const tabLabels = {
   orders: t('orders'), stats: t('statistics'), menu: t('menu'),
   waiters: t('waiters'), team: t('team'), events: t('events'), festadmins: t('festAdmins'),
 };
-let current = 'orders';
+let current = tabs[0];
 
 const nav = el('header', { class: 'topbar' },
   el('h1', {}, 'OrderFlow'),
@@ -431,6 +435,10 @@ async function downloadCsv(eventId) {
 async function renderStats() {
   const events = await api('/admin/events', { token });
   content.innerHTML = '';
+  if (!events.length) {
+    content.append(el('div', { class: 'empty-state' }, t('noFests')));
+    return;
+  }
   if (!statsEventId || !events.some((e) => e.id === statsEventId)) {
     statsEventId = (events.find((e) => e.active) || events[0])?.id;
   }
@@ -459,11 +467,16 @@ async function renderStats() {
     s.perStation.map((r) => [r.station, r.qty, money(r.revenue)])));
 }
 
-// ---------------- Fest-Admins (super-admin only) ----------------
+// ---------------- Fest-Admins (super-admin oversight) ----------------
+// Shows every user and, nested beneath, their events with a drill-in to stats.
 async function renderFestAdmins() {
-  const admins = await api('/admin/festadmins', { token });
+  const [admins, events] = await Promise.all([
+    api('/admin/festadmins', { token }),
+    api('/admin/events', { token }),
+  ]);
   content.innerHTML = '';
 
+  // Create a new fest-admin
   const uName = el('input', { placeholder: t('username'), autocapitalize: 'none' });
   const uPass = el('input', { type: 'password', placeholder: t('password') });
   const add = async () => {
@@ -487,7 +500,7 @@ async function renderFestAdmins() {
     const self = a.id === me.uid;
     const roleTag = el('span', { class: 'tag ' + (a.role === 'superadmin' ? 'warn' : 'ok') },
       a.role === 'superadmin' ? t('roleSuper') : t('roleAdmin'));
-    const actions = el('div', { class: 'row wrap', style: 'margin-top:.5rem' },
+    const actions = el('div', { class: 'row wrap', style: 'margin-top:.6rem' },
       el('button', { class: 'btn-sm btn-ghost', onclick: async () => {
         const pw = prompt(t('newPassword'));
         if (!pw) return;
@@ -506,11 +519,25 @@ async function renderFestAdmins() {
         catch (e) { toast(saErr(e), true); }
       } }, '🗑'));
     }
+
+    // Nested list of this user's events, each with a stats drill-in.
+    const evs = events.filter((e) => e.owner_id === a.id);
+    const evRows = evs.length
+      ? evs.map((e) => el('div', { class: 'row spread', style: 'border-top:1px solid var(--border);padding:.45rem 0' },
+          el('span', {}, '🎪 ' + e.name + (e.status === 'archived' ? ` (${t('archived')})` : '')),
+          el('div', { class: 'row' },
+            el('span', { class: 'tag muted' }, e.orders + ' ' + t('ordersCount')),
+            el('button', { class: 'btn-sm btn-ghost', onclick: () => { statsEventId = e.id; select('stats'); } }, '📊 ' + t('statistics'))
+          )
+        ))
+      : [el('div', { class: 'muted', style: 'padding:.45rem 0' }, t('noFests'))];
+
     content.append(el('div', { class: 'card' },
       el('div', { class: 'row spread' },
         el('strong', {}, a.username + (self ? ` (${t('you')})` : '')),
-        el('div', { class: 'row' }, roleTag, el('span', { class: 'tag muted' }, a.events + ' ' + t('eventsCount')), a.active ? null : el('span', { class: 'tag muted' }, '—'))
+        el('div', { class: 'row' }, roleTag, el('span', { class: 'tag muted' }, evs.length + ' ' + t('eventsCount')), a.active ? null : el('span', { class: 'tag muted' }, '—'))
       ),
+      ...(self && a.role === 'superadmin' ? [] : evRows),
       actions
     ));
   }
@@ -528,4 +555,4 @@ connectSocket({ token, room: 'admin', on: {
   unauthorized: () => { tokens.clearAdmin(); location.reload(); },
 } });
 
-select('orders');
+select(current);

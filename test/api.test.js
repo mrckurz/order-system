@@ -54,7 +54,21 @@ async function jf(pathName, { method = 'GET', body, token } = {}) {
 
 const login = (username, password) =>
   jf('/api/login', { method: 'POST', body: { username, password } });
+// The bootstrap account is the (oversight-only) super-admin.
 const asAdmin = async () => (await login('admin', 'admin-pw')).json.token;
+const asSuper = asAdmin;
+
+// A fest-admin that owns an activated event with the default menu — used for
+// all operational tests (the super-admin can't create/operate events).
+let _festTok = null;
+async function asFest() {
+  if (_festTok) return _festTok;
+  const su = await asSuper();
+  await jf('/api/admin/festadmins', { method: 'POST', token: su, body: { username: 'fester', password: 'fest-pw' } });
+  _festTok = (await login('fester', 'fest-pw')).json.token;
+  await jf('/api/admin/events', { method: 'POST', token: _festTok, body: { name: 'Fester Fest', seedMenu: true } });
+  return _festTok;
+}
 
 test('config and seeded menu are available', async () => {
   const { status, json } = await jf('/api/config');
@@ -147,7 +161,7 @@ test('deactivating an account blocks it immediately', async () => {
 });
 
 test('full order lifecycle: create waiter, single-use claim, order, station queue', async () => {
-  const admin = await asAdmin();
+  const admin = await asFest();
 
   const w = await jf('/api/admin/waiters', { method: 'POST', token: admin, body: { name: 'Berta' } });
   assert.equal(w.status, 200);
@@ -182,7 +196,7 @@ test('full order lifecycle: create waiter, single-use claim, order, station queu
 });
 
 test('reset clears orders but keeps menu and accounts', async () => {
-  const admin = await asAdmin();
+  const admin = await asFest();
   const before = (await jf('/api/admin/orders', { token: admin })).json;
   assert.ok(before.length > 0, 'precondition: there are orders from the lifecycle test');
   const r = await jf('/api/admin/reset', { method: 'POST', token: admin, body: {} });
@@ -227,8 +241,9 @@ test('waiter link uses the static ?c= form and /w redirects', async () => {
   assert.match(red.headers.get('location'), /\/waiter\.html\?c=sometoken/);
 });
 
-test('events: a default active event exists; can create & activate another', async () => {
-  const admin = await asAdmin();
+test('fest-admin: can create & activate events; super-admin cannot create', async () => {
+  assert.equal((await jf('/api/admin/events', { method: 'POST', token: await asSuper(), body: { name: 'X' } })).status, 403);
+  const admin = await asFest();
   const evs = (await jf('/api/admin/events', { token: admin })).json;
   assert.ok(evs.length >= 1, 'a default event exists');
   assert.ok(evs.some((e) => e.active), 'one event is active');
@@ -246,7 +261,7 @@ test('events: a default active event exists; can create & activate another', asy
 });
 
 test('per-event statistics and CSV export', async () => {
-  const admin = await asAdmin();
+  const admin = await asFest();
   const ev = (await jf('/api/admin/events', { method: 'POST', token: admin, body: { name: 'Stats Fest', seedMenu: true } })).json;
   await jf(`/api/admin/events/${ev.id}/activate`, { method: 'POST', token: admin });
 

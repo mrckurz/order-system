@@ -35,7 +35,7 @@ export const STR = {
     perWaiter: 'Pro Kellner', perProduct: 'Verkaufte Produkte', perStation: 'Pro Station',
     product: 'Produkt', qtySold: 'Anzahl', exportCsv: 'CSV-Export', noData: 'Noch keine Daten',
     festAdmins: 'Fest-Admins', addFestAdmin: 'Fest-Admin anlegen', owner: 'Inhaber',
-    eventsCount: 'Feste', roleSuper: 'Super-Admin', cannotDeleteLastSuper: 'Der letzte Super-Admin kann nicht entfernt werden.',
+    eventsCount: 'Feste', noFests: 'Noch keine Feste angelegt', roleSuper: 'Super-Admin', cannotDeleteLastSuper: 'Der letzte Super-Admin kann nicht entfernt werden.',
     deleteFestAdminConfirm: 'Diesen Fest-Admin samt allen seinen Festen und Daten unwiderruflich löschen?',
   },
   en: {
@@ -72,7 +72,7 @@ export const STR = {
     perWaiter: 'Per waiter', perProduct: 'Products sold', perStation: 'Per station',
     product: 'Product', qtySold: 'Qty', exportCsv: 'Export CSV', noData: 'No data yet',
     festAdmins: 'Fest admins', addFestAdmin: 'Add fest admin', owner: 'Owner',
-    eventsCount: 'Events', roleSuper: 'Super-admin', cannotDeleteLastSuper: 'You cannot remove the last super-admin.',
+    eventsCount: 'Events', noFests: 'No events yet', roleSuper: 'Super-admin', cannotDeleteLastSuper: 'You cannot remove the last super-admin.',
     deleteFestAdminConfirm: 'Permanently delete this fest admin with all their events and data?',
   },
 };

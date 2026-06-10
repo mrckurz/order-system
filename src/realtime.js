@@ -20,12 +20,12 @@ export function initRealtime(httpServer) {
     const auth = authForSocket(token);
 
     if (room === 'admin') {
-      // Full admin overview — admin role only.
-      if (auth?.role !== 'admin') return reject(socket);
+      // Full admin overview — admin or super-admin.
+      if (!auth || !['admin', 'superadmin'].includes(auth.role)) return reject(socket);
       socket.join('staff');
     } else if (['bar', 'kitchen', 'station'].includes(room)) {
-      // Station displays — admin or station role.
-      if (!auth || !['admin', 'station'].includes(auth.role)) return reject(socket);
+      // Station displays — any staff role.
+      if (!auth || !['superadmin', 'admin', 'station'].includes(auth.role)) return reject(socket);
       socket.join('staff');
       socket.join(`station:${room}`);
     } else if (auth?.role === 'waiter') {
