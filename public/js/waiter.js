@@ -190,6 +190,7 @@ $('sendBtn').addEventListener('click', async () => {
       body: { table: $('tableInput').value.trim(), note: $('noteInput').value.trim(), items },
     });
     cart.clear();
+    $('tableInput').value = '';
     $('noteInput').value = '';
     renderCart();
     syncTiles();
