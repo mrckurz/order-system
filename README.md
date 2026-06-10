@@ -18,6 +18,8 @@ OrderFlow was originally built so a volunteer fire brigade could run the drinks-
 
 It's **self-hosted**: run it on a small server you control (a cheap VPS, or even a Raspberry Pi) with automatic HTTPS. No SaaS, no subscription, no external/cloud accounts — the app and its data stay yours.
 
+It's also **multi-tenant**: one instance can host several organisers. A **super-admin** manages the platform and its users, while each **fest-admin** independently runs their own festivals and sees only their own data — so you can even rent it out to other clubs or brigades.
+
 ## How it works
 
 ```
@@ -34,21 +36,24 @@ It's **self-hosted**: run it on a small server you control (a cheap VPS, or even
 1. **You (admin)** open the Admin screen, create a waiter for each helper and hand each one a **single-use login link** (QR code, message, or just type it).
 2. Each **waiter** opens their link once on their own phone. The link is consumed and the phone is bound to that waiter — the link can't be reused or shared. They install the PWA and start taking orders.
 3. Orders appear **instantly** on the **Bar** display (drinks) and the **Kitchen** display (food). Each order shows which waiter placed it, so you can hand them a ready tray.
-4. The **Kitchen** also **prints a ticket** for every incoming order on a thermal printer, in arrival order.
-5. You watch **all orders** live in the Admin overview and can log waiters out at any time.
+4. The **Kitchen** also **prints a ticket** for every incoming order on a thermal printer, in arrival order. Completed orders stay on the screen marked *done* (new on top, done below) — nothing vanishes.
+5. You watch **all orders** live in the Admin overview; each order has a **sequential number** (#1, #2, …) per event.
+
+**Roles:** a **super-admin** oversees the platform and creates **fest-admins**; each fest-admin runs their own events (menu, waiters, orders, stats) and sees only their own data; **station** logins open the Bar/Kitchen screens; **waiters** just use their personal single-use link.
 
 ## Features
 
 - 📱 **Installable PWA** — works on any phone/tablet, no app store. Survives brief WiFi drops.
 - 🔗 **Single-use waiter links** with an expiry — create them up front, hand them out, done.
-- 🍺🍴 **Live station displays** for bar and kitchen, grouped by order and showing the waiter.
+- 🍺🍴 **Live station displays** for bar and kitchen, grouped by order and showing the waiter. Completed orders stay on screen (marked done, open on top) instead of vanishing, and can be re-opened.
+- 🔢 **Sequential order numbers** per event (#1, #2, …) — on the station screens, the admin overview and printed tickets.
 - 🖨 **Thermal printer support** (ESC/POS over network) — kitchen tickets in arrival order, with a console/file fallback for testing.
-- 🎪 **Multiple events/festivals** — each event keeps its **own menu, waiters and orders**, stored permanently. One event is "active"; start a new one for next year (optionally copying last year's menu).
+- 🎪 **Multiple events/festivals** — each event keeps its **own menu, waiters and orders**, stored permanently. One is "active"; start a new one for next year (optionally copying a previous event's menu).
 - 📊 **Statistics dashboard per event** — total revenue, orders, average order, revenue per waiter, products sold and a per-station breakdown, with **CSV export**.
-- ⚙️ **Configurable menu** — categories, articles, prices and stations editable from the Admin screen at runtime.
-- 👥 **Accounts & roles** — log in with username + password; create and manage **multiple admins** and **station logins** from the Admin → Team screen (you can't lock out the last admin).
+- ⚙️ **Flexible menu** — categories, articles, prices and stations editable at runtime; **reorder by drag-and-drop or ↑/↓** (the waiter sees the same order); **import/export your menu as CSV**. New events start with an empty menu.
+- 👥 **Multi-tenant accounts & roles** — **super-admin** (manages users & oversight), **fest-admins** (run their own events), **station logins** (bar/kitchen) and password-less **single-use waiter links**. Rent one instance to several organisers; each sees only their own data.
 - 👀 **Admin overview** of every order; a one-click **reset** lets you test then start the event clean.
-- 🔒 **Security-minded** — hashed passwords (scrypt), role separation (admin vs station), device-bound single-use waiter links, rate-limited logins, hardened HTTP headers. See [SECURITY.md](SECURITY.md).
+- 🔒 **Security-minded** — hashed passwords (scrypt), role separation & per-tenant data isolation, device-bound single-use waiter links, rate-limited logins, hardened HTTP headers. See [SECURITY.md](SECURITY.md).
 - 🌍 **i18n** — ships with German and English; default language is configurable.
 - 🪶 **Tiny footprint** — SQLite file, a handful of dependencies, runs happily even on a Raspberry Pi.
 
@@ -69,24 +74,26 @@ Open <http://localhost:3000> and pick a screen:
 
 | Screen | URL | Who |
 | --- | --- | --- |
-| Admin | `/admin` | You — orders, **Statistik**, menu, waiters, **Team** (admins/stations) and **Feste** (events). Log in with the bootstrap admin account |
-| Bar | `/bar` | Bar staff — live drink orders (station account) |
-| Kitchen | `/kitchen` | Food counter — live food orders + auto-print (station account) |
-| Waiter | `/w/<link>` | Each waiter — single-use link created in Admin |
+| Admin | `/admin` | **Super-admin:** manage fest-admins, view their events & stats. **Fest-admin:** orders, statistics, menu, waiters, team (stations), events |
+| Bar | `/bar` | Bar staff — live drink orders (station login) |
+| Kitchen | `/kitchen` | Food counter — live food orders + auto-print (station login) |
+| Waiter | `/w/<link>` | Each waiter — single-use link created by their fest-admin |
 
 ## Running your event
 
-Once OrderFlow is deployed (see **Deployment** below), set everything up from the Admin screen at `https://your-domain/admin`:
+Once OrderFlow is deployed (see **Deployment** below), open `https://your-domain/admin`:
 
-1. Log in with the bootstrap admin account.
-2. In **Feste/Events**, name your event (e.g. *Summer Festival 2026*). It becomes the active event — menu, waiters and orders all live under it. Next year, create a new event and optionally copy this year's menu.
-3. In **Team**, change your password and add station accounts (Bar/Kitchen) plus any extra admins.
-4. In **Menu**, adjust articles and prices.
-5. In **Waiters**, create one per helper and share each single-use link (Share/Copy buttons — paste into your group chat or show a QR code).
-6. Open `/bar` and `/kitchen` on the station devices (log in with a station account) and **Add to Home Screen** for full-screen.
-7. Waiters open their link once, **Add to Home Screen**, and they're ready.
+1. Log in as the **super-admin** (the bootstrap `ADMIN_USERNAME` / `ADMIN_PASSWORD`).
+2. In **Fest-Admins**, create an account for each organiser (e.g. your fire brigade) — including one for yourself if you also run a festival.
+3. Log in as that **fest-admin** and:
+   - **Feste/Events** → create your event (it starts with an empty menu) and activate it.
+   - **Menu** → build the menu by hand, **import a CSV**, or copy a previous event's menu; reorder with drag-and-drop or ↑/↓.
+   - **Team** → add Bar/Kitchen **station logins**.
+   - **Waiters** → create one per helper and share each single-use link (Share/Copy — paste into your group chat or show a QR code).
+4. Open `/bar` and `/kitchen` on the station devices (station login) and **Add to Home Screen** for full-screen.
+5. Waiters open their link once, **Add to Home Screen**, and they're ready.
 
-> 💡 Test freely, then **Admin → Team → Reset** (or simply start a fresh event) to go live clean. After the event, review the numbers in **Statistik** and **export CSV** — the data stays stored under that event.
+> 💡 Test freely, then **Team → Reset** (or simply start a fresh event) to go live clean. After the event, review **Statistik** and **export CSV** per event. The super-admin can view any fest-admin's events and stats.
 
 ## Deployment options
 
@@ -130,7 +137,7 @@ All configuration is via `.env` (see [.env.example](.env.example) for the full l
 
 ### The menu
 
-The initial menu is seeded from [`config/default-menu.json`](config/default-menu.json) on first start. After that, **edit everything in the Admin → Menu screen** — categories, articles, prices and which station (bar/kitchen) each item goes to. To re-seed from the file (wiping the current menu): `npm run seed:reset`.
+Menus are **per event and start empty**. As a fest-admin you build the menu in **Admin → Menu**, **import it from a CSV** (semicolon-separated: `Category;Item;Price;Station;Active` — station is `drinks` or `food`), or **copy** a previous event's menu when creating a new event. Reorder categories/articles by **drag-and-drop or the ↑/↓ buttons**; the waiter screen shows the same order, and you can **export** the current menu as CSV. The example file [`config/default-menu.json`](config/default-menu.json) is only used by `npm run seed` (dev).
 
 ### Printer
 
@@ -143,14 +150,14 @@ src/
   server.js     # HTTP server + websockets bootstrap
   app.js        # Express app factory (routes, security headers, static) — testable
   routes.js     # REST API (config, login, accounts, events, stats, waiters, menu, orders, stations)
-  auth.js       # accounts (scrypt) + signed session tokens, single-use waiter claims, rate limiting
-  events.js     # events/festivals: active event, create/copy/activate/archive
+  auth.js       # accounts (scrypt) + roles (super-admin/admin/station), session tokens, single-use waiter claims, rate limiting
+  events.js     # events/festivals + ownership (per fest-admin), active event, create/copy/activate/archive
   stats.js      # per-event sales statistics + CSV export
-  orders.js     # order creation, station queues, print triggering
+  orders.js     # order creation + per-event numbering, station queues, print triggering
   realtime.js   # Socket.IO rooms (staff vs. waiter)
   printer.js    # ESC/POS rendering + network/console/spool output
   db.js         # SQLite schema + migrations (better-sqlite3)
-  seed.js       # seed default menu into an event
+  seed.js       # global stations + example menu (dev)
   config.js     # env-based configuration
 public/          # the PWA (vanilla JS, no build step)
 config/          # default-menu.json
