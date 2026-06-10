@@ -309,6 +309,11 @@ test('new events start empty; fest-admin can import/export a menu (CSV)', async 
   const res = await fetch(base + '/api/admin/menu/export.csv', { headers: { Authorization: `Bearer ${tok}` } });
   assert.equal(res.status, 200);
   assert.match(await res.text(), /0,5l Bier/);
+
+  // reorder categories -> waiter/admin menu reflects the new order
+  const reversed = cats.map((c) => c.id).reverse();
+  assert.equal((await jf('/api/admin/categories/reorder', { method: 'POST', token: tok, body: { ids: reversed } })).status, 200);
+  assert.equal((await jf('/api/admin/menu', { token: tok })).json.categories[0].id, reversed[0]);
 });
 
 test('CORS allows cross-origin browser requests with Authorization', async () => {

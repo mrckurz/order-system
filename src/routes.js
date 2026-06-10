@@ -196,14 +196,25 @@ router.put('/admin/stations/:id', requireSuperadmin, (req, res) => {
 
 // ---------- categories (within the requester's active event) ----------
 router.post('/admin/categories', requireAdmin, (req, res) => {
-  const { name, station = 'drinks', sort = 0 } = req.body || {};
+  const { name, station = 'drinks' } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name_required' });
   const eventId = getActiveEventIdFor(req.staff);
   assertEvent(req, eventId);
+  const sort = req.body?.sort ?? db.prepare('SELECT COALESCE(MAX(sort),-1)+1 n FROM categories WHERE event_id = ?').get(eventId).n;
   const { lastInsertRowid } = db
     .prepare('INSERT INTO categories (event_id, name, station, sort) VALUES (?, ?, ?, ?)')
     .run(eventId, name, station, sort);
   res.json({ id: lastInsertRowid });
+});
+
+// Reorder categories within the active event: body { ids: [orderedIds] }
+router.post('/admin/categories/reorder', requireAdmin, (req, res) => {
+  const eventId = getActiveEventIdFor(req.staff);
+  assertEvent(req, eventId);
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  const upd = db.prepare('UPDATE categories SET sort = ? WHERE id = ? AND event_id = ?');
+  db.transaction(() => ids.forEach((id, i) => upd.run(i, id, eventId)))();
+  res.json({ ok: true });
 });
 
 router.patch('/admin/categories/:id', requireAdmin, (req, res) => {
@@ -223,15 +234,28 @@ router.delete('/admin/categories/:id', requireAdmin, (req, res) => {
 
 // ---------- articles ----------
 router.post('/admin/articles', requireAdmin, (req, res) => {
-  const { categoryId, name, price = 0, station, sort = 0 } = req.body || {};
+  const { categoryId, name, price = 0, station } = req.body || {};
   if (!categoryId || !name) return res.status(400).json({ error: 'category_and_name_required' });
   const cat = db.prepare('SELECT * FROM categories WHERE id = ?').get(categoryId);
   if (!cat) return res.status(400).json({ error: 'unknown_category' });
   assertEvent(req, cat.event_id);
+  const sort = req.body?.sort ?? db.prepare('SELECT COALESCE(MAX(sort),-1)+1 n FROM articles WHERE category_id = ?').get(categoryId).n;
   const { lastInsertRowid } = db
     .prepare('INSERT INTO articles (category_id, name, price, station, active, sort) VALUES (?, ?, ?, ?, 1, ?)')
     .run(categoryId, name, Number(price) || 0, station || cat.station, sort);
   res.json({ id: lastInsertRowid });
+});
+
+// Reorder articles within a category: body { ids: [orderedIds] }
+router.post('/admin/articles/reorder', requireAdmin, (req, res) => {
+  const eventId = getActiveEventIdFor(req.staff);
+  assertEvent(req, eventId);
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  const upd = db.prepare(
+    'UPDATE articles SET sort = ? WHERE id = ? AND category_id IN (SELECT id FROM categories WHERE event_id = ?)'
+  );
+  db.transaction(() => ids.forEach((id, i) => upd.run(i, id, eventId)))();
+  res.json({ ok: true });
 });
 
 router.patch('/admin/articles/:id', requireAdmin, (req, res) => {
