@@ -12,17 +12,19 @@ function labelFor(obj, key, fallback) {
   return obj[`${key}_${config.defaultLang}`] ?? obj[`${key}_de`] ?? obj[`${key}_en`] ?? fallback;
 }
 
-function seedStationsIfEmpty(menu) {
+// Seed the global stations (drinks/food) once — infrastructure, not menu data.
+export function seedStations() {
   if (db.prepare('SELECT COUNT(*) n FROM stations').get().n > 0) return;
+  const menu = loadMenu();
   const ins = db.prepare('INSERT OR REPLACE INTO stations (id, label, print, sort) VALUES (?, ?, ?, ?)');
   for (const s of menu.stations) ins.run(s.id, labelFor(s, 'label', s.id), s.print ? 1 : 0, s.sort ?? 0);
 }
 
-// Seed the default menu into an event, but only if that event has no menu yet.
+// Seed the example menu into an event (only used when explicitly requested).
 export function seedEventMenu(eventId, { force = false } = {}) {
   const menu = loadMenu();
   const tx = db.transaction(() => {
-    seedStationsIfEmpty(menu);
+    seedStations();
     const has = db.prepare('SELECT COUNT(*) n FROM categories WHERE event_id = ?').get(eventId).n;
     if (has > 0) {
       if (!force) return { skipped: true };
@@ -42,21 +44,22 @@ export function seedEventMenu(eventId, { force = false } = {}) {
   return tx();
 }
 
-// Called on startup: ensure an event exists and its menu is seeded on first run.
+// Called on startup: seed the global stations and rescue any legacy orphan rows.
+// No menu is seeded — fest-admins build/import their own menus.
 export function bootstrapData() {
-  const eventId = ensureFirstEvent();
-  return seedEventMenu(eventId);
+  seedStations();
+  ensureFirstEvent(); // legacy orphan rescue only; does not create empty events
 }
 
-// CLI: node src/seed.js [--reset]
+// CLI: node src/seed.js  (seeds the example menu into the newest event, for dev)
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const reset = process.argv.includes('--reset');
-  const eventId = ensureFirstEvent();
-  const res = seedEventMenu(eventId, { force: reset });
-  if (res.skipped) {
-    console.log('Active event already has a menu — nothing to do. Use "npm run seed:reset" to overwrite it.');
+  seedStations();
+  const ev = db.prepare('SELECT id FROM events ORDER BY id DESC LIMIT 1').get();
+  if (!ev) {
+    console.log('No event exists yet — create one as a fest-admin first.');
   } else {
-    console.log(reset ? 'Active event menu reset to defaults.' : 'Seeded default menu into the active event.');
+    const res = seedEventMenu(ev.id, { force: process.argv.includes('--reset') });
+    console.log(res.skipped ? 'Newest event already has a menu.' : 'Seeded example menu into the newest event.');
   }
   process.exit(0);
 }

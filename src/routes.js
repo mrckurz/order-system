@@ -116,6 +116,74 @@ router.get('/admin/menu', requireAdmin, (req, res) => {
   res.json({ categories: getMenu(eventId, { includeInactive: true }), stations: getStations() });
 });
 
+// ---------- menu CSV export / import (own active event) ----------
+function splitCsv(line, d) {
+  const out = []; let cur = ''; let q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q) { if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === d) { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+function parseMenuCsv(text) {
+  const rows = [];
+  for (const raw of String(text).split(/\r?\n/)) {
+    if (!raw.trim()) continue;
+    const c = splitCsv(raw, ';').map((s) => s.trim());
+    if (!c[0]) continue;
+    if (rows.length === 0 && /^(kategorie|category)$/i.test(c[0])) continue; // header
+    const name = (c[1] || '').trim();
+    if (!name) continue;
+    const active = !['0', 'false', 'nein', 'no'].includes((c[4] || '').toLowerCase());
+    rows.push({ category: c[0], name, price: parseFloat(String(c[2] || '0').replace(',', '.')) || 0, station: (c[3] || '').trim(), active });
+  }
+  return rows;
+}
+
+router.get('/admin/menu/export.csv', requireAdmin, (req, res) => {
+  const eventId = getActiveEventIdFor(req.staff);
+  if (!eventId) return res.status(400).json({ error: 'no_active_event' });
+  assertEvent(req, eventId);
+  const esc = (v) => { const s = String(v ?? ''); return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const rows = ['Kategorie;Artikel;Preis;Station;Aktiv'];
+  for (const cat of getMenu(eventId, { includeInactive: true })) {
+    for (const a of cat.items) rows.push([cat.name, a.name, a.price.toFixed(2), a.station, a.active ? 1 : 0].map(esc).join(';'));
+  }
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="speisekarte.csv"');
+  res.send(rows.join('\n') + '\n');
+});
+
+router.post('/admin/menu/import', requireAdmin, (req, res) => {
+  const eventId = getActiveEventIdFor(req.staff);
+  if (!eventId) return res.status(400).json({ error: 'no_active_event' });
+  assertEvent(req, eventId);
+  const rows = parseMenuCsv(req.body?.csv || '');
+  if (!rows.length) return res.status(400).json({ error: 'empty_or_invalid' });
+  const validStations = new Set(getStations().map((s) => s.id));
+  const tx = db.transaction(() => {
+    if (req.body?.replace) db.prepare('DELETE FROM categories WHERE event_id = ?').run(eventId);
+    const catMap = new Map(
+      db.prepare('SELECT id, name FROM categories WHERE event_id = ?').all(eventId).map((c) => [c.name.toLowerCase(), c.id])
+    );
+    const insCat = db.prepare('INSERT INTO categories (event_id, name, station, sort) VALUES (?, ?, ?, ?)');
+    const insArt = db.prepare('INSERT INTO articles (category_id, name, price, station, active, sort) VALUES (?, ?, ?, ?, ?, ?)');
+    let sort = 0;
+    for (const r of rows) {
+      const station = validStations.has(r.station) ? r.station : 'drinks';
+      let cid = catMap.get(r.category.toLowerCase());
+      if (!cid) { cid = insCat.run(eventId, r.category, station, catMap.size).lastInsertRowid; catMap.set(r.category.toLowerCase(), cid); }
+      insArt.run(cid, r.name, r.price, station, r.active ? 1 : 0, sort++);
+    }
+  });
+  tx();
+  res.json({ ok: true, imported: rows.length });
+});
+
 // ---------- stations definition (global infrastructure — superadmin) ----------
 router.put('/admin/stations/:id', requireSuperadmin, (req, res) => {
   const { label, print, sort } = req.body || {};
@@ -300,7 +368,9 @@ router.post('/admin/events', requireAdmin, (req, res) => {
   const { name, copyMenuFrom, seedMenu, activate = true } = req.body || {};
   if (copyMenuFrom) assertEvent(req, copyMenuFrom);
   const ev = createEvent({ name, owner: req.staff, copyFromEventId: copyMenuFrom || null, activate });
-  if (!copyMenuFrom && seedMenu !== false) seedEventMenu(ev.id);
+  // New events start with an EMPTY menu; the example menu is only seeded on
+  // explicit opt-in (seedMenu === true). Fest-admins build or import their own.
+  if (!copyMenuFrom && seedMenu === true) seedEventMenu(ev.id);
   res.status(201).json(ev);
 });
 

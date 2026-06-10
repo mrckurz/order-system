@@ -177,11 +177,46 @@ async function renderWaiters() {
 }
 
 // ---------------- Menu ----------------
+async function downloadMenuCsv() {
+  const res = await fetch(`${API_BASE}/api/admin/menu/export.csv`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) { toast('Export ✗', true); return; }
+  const url = URL.createObjectURL(await res.blob());
+  const a = el('a', { href: url, download: 'speisekarte.csv' });
+  document.body.append(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
 async function renderMenu() {
   const data = await api('/admin/menu', { token });
   content.innerHTML = '';
   const curSym = currencySymbol();
   const euro = () => el('span', { class: 'muted', style: 'margin:0 .4rem 0 .1rem' }, curSym);
+
+  // Import / export card
+  const ta = el('textarea', { placeholder: 'Getränke;0,5l Bier;4.50;drinks;1', style: 'min-height:90px;font-family:monospace;font-size:.85rem' });
+  const file = el('input', { type: 'file', accept: '.csv,text/csv', style: 'min-height:auto' });
+  file.addEventListener('change', async () => { if (file.files[0]) ta.value = await file.files[0].text(); });
+  const replace = el('input', { type: 'checkbox', style: 'width:auto;min-height:auto' });
+  content.append(el('div', { class: 'card' },
+    el('div', { class: 'row spread wrap' },
+      el('h3', { style: 'margin:0' }, t('importMenu')),
+      el('button', { class: 'btn-sm btn-ghost', onclick: downloadMenuCsv }, '⬇ ' + t('exportMenu'))
+    ),
+    el('p', { class: 'muted', style: 'font-size:.85rem;margin:.3rem 0' }, t('importHint')),
+    ta,
+    el('div', { class: 'row wrap', style: 'margin-top:.5rem' },
+      file,
+      el('label', { style: 'margin:0;display:flex;align-items:center;gap:.3rem' }, replace, t('replaceMenu')),
+      el('button', { class: 'btn-sm btn-primary', onclick: async () => {
+        if (!ta.value.trim()) return;
+        try {
+          const r = await api('/admin/menu/import', { method: 'POST', token, body: { csv: ta.value, replace: replace.checked } });
+          toast(r.imported + ' ' + t('imported'));
+          renderMenu();
+        } catch (e) { toast(e.message, true); }
+      } }, t('importBtn'))
+    )
+  ));
   const stationOpts = (sel) => data.stations.map((s) =>
     el('option', { value: s.id, ...(s.id === sel ? { selected: '' } : {}) }, s.label)
   );
