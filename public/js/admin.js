@@ -6,6 +6,7 @@ registerSW();
 const cfg = await loadConfig().catch(() => ({ stations: [] }));
 const { token } = await ensureStaff({ minRole: 'admin', title: t('admin') });
 const me = await api('/whoami', { token }).catch(() => ({}));
+const isSuper = me.role === 'superadmin';
 
 const toastEl = el('div', { class: 'toast', id: 'toast' });
 function toast(msg, err = false) {
@@ -23,7 +24,6 @@ const tabLabels = {
 };
 let current = 'orders';
 
-const isSuper = me.role === 'superadmin';
 const nav = el('header', { class: 'topbar' },
   el('h1', {}, 'OrderFlow'),
   me.activeEvent ? el('span', { class: 'badge' }, '🎪 ' + me.activeEvent.name) : null,
