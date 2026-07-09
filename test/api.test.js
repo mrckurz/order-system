@@ -331,13 +331,30 @@ test('idempotent order creation: same clientKey creates only one order', async (
   const item = (await jf('/api/menu', { token: sess })).json.categories.flatMap((c) => c.items)[0];
   const before = (await jf('/api/admin/orders', { token: admin })).json.length;
 
-  const body = { clientKey: 'fixed-key-123', items: [{ articleId: item.id, qty: 1 }] };
+  const body = { clientKey: 'fixed-key-123', table: '7', items: [{ articleId: item.id, qty: 1 }] };
   const r1 = await jf('/api/orders', { method: 'POST', token: sess, body });
   const r2 = await jf('/api/orders', { method: 'POST', token: sess, body });
   assert.equal(r1.json.id, r2.json.id, 'same clientKey returns the same order');
 
   const after = (await jf('/api/admin/orders', { token: admin })).json.length;
   assert.equal(after, before + 1, 'exactly one order was created');
+});
+
+test('table number is required (empty/missing is rejected, "0" is accepted)', async () => {
+  const admin = await asFest();
+  const w = (await jf('/api/admin/waiters', { method: 'POST', token: admin, body: { name: 'Tbl' } })).json;
+  const sess = (await jf('/api/waiters/claim', { method: 'POST', body: { claimToken: new URL(w.link).searchParams.get('c') } })).json.sessionToken;
+  const item = (await jf('/api/menu', { token: sess })).json.categories.flatMap((c) => c.items)[0];
+
+  const missing = await jf('/api/orders', { method: 'POST', token: sess, body: { items: [{ articleId: item.id, qty: 1 }] } });
+  assert.equal(missing.status, 400, 'order without a table is rejected');
+
+  const blank = await jf('/api/orders', { method: 'POST', token: sess, body: { table: '   ', items: [{ articleId: item.id, qty: 1 }] } });
+  assert.equal(blank.status, 400, 'order with a blank table is rejected');
+
+  const zero = await jf('/api/orders', { method: 'POST', token: sess, body: { table: '0', items: [{ articleId: item.id, qty: 1 }] } });
+  assert.equal(zero.status, 201, '"0" is a valid table (means no table)');
+  assert.equal(zero.json.table_no, '0', '"0" is stored, not dropped to null');
 });
 
 test('CORS allows cross-origin browser requests with Authorization', async () => {

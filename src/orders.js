@@ -30,6 +30,11 @@ export function createOrder({ waiterId, eventId, table, note, items, clientKey }
   if (!Array.isArray(items) || items.length === 0) {
     throw Object.assign(new Error('order has no items'), { status: 400 });
   }
+  // Table number is mandatory ("0" means "no table" but must be entered explicitly).
+  const tableNo = table == null ? '' : String(table).trim();
+  if (tableNo === '') {
+    throw Object.assign(new Error('table number is required'), { status: 400 });
+  }
 
   const getArticle = db.prepare(
     `SELECT a.* FROM articles a JOIN categories c ON c.id = a.category_id
@@ -50,7 +55,7 @@ export function createOrder({ waiterId, eventId, table, note, items, clientKey }
       eventId ?? null,
       orderNo,
       waiterId ?? null,
-      table ? String(table) : null,
+      tableNo,
       note ? String(note) : null,
       clientKey || null,
       Date.now()
