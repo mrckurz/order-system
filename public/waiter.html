@@ -22,9 +22,12 @@
   </main>
 
   <div class="cart-bar" id="cartBar" hidden>
-    <button class="cart-summary" id="cartSummary" type="button">
-      <span id="cartSummaryText"></span>
-      <span class="cart-chevron" id="cartChevron">▴</span>
+    <button class="cart-summary" id="cartSummary" type="button" aria-label="Bestellung auf-/zuklappen">
+      <span class="cart-grabber" aria-hidden="true"></span>
+      <span class="cart-summary-row">
+        <span id="cartSummaryText"></span>
+        <span class="cart-chevron" id="cartChevron">▴</span>
+      </span>
     </button>
     <div class="cart-list" id="cartList" hidden></div>
     <div class="row" style="margin:.5rem 0">

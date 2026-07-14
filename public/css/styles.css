@@ -105,7 +105,7 @@ label { display: block; font-size: .85rem; color: var(--muted); margin: .6rem 0 
 .cart-bar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
   background: var(--surface); border-top: 1px solid var(--border);
-  padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom));
+  padding: .4rem 1rem calc(.75rem + env(safe-area-inset-bottom));
   box-shadow: 0 -4px 16px rgba(0,0,0,.35);
 }
 .cart-list { max-height: 40vh; overflow:auto; }
@@ -114,10 +114,20 @@ label { display: block; font-size: .85rem; color: var(--muted); margin: .6rem 0 
 .qty-ctrl button { min-width: 40px; min-height: 40px; padding: 0; }
 /* collapsible summary: keep the bar compact so menu tiles stay visible */
 .cart-summary {
-  width: 100%; justify-content: space-between; gap: .5rem;
-  min-height: 40px; padding: .1rem .1rem .4rem;
+  width: 100%; flex-direction: column; gap: .45rem;
+  min-height: 44px; padding: .1rem .1rem .5rem;
   background: transparent; color: var(--text); font-weight: 600;
   border-bottom: 1px solid var(--border); border-radius: 0;
+}
+/* drag-handle style grabber — the "pull me up" affordance at the top center */
+.cart-grabber {
+  width: 44px; height: 5px; border-radius: 3px;
+  background: var(--muted); opacity: .55;
+  transition: opacity .15s ease, background .15s ease;
+}
+.cart-summary:hover .cart-grabber, .cart-summary:active .cart-grabber { opacity: .9; }
+.cart-summary-row {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: .5rem;
 }
 .cart-chevron { color: var(--muted); transition: transform .15s ease; }
 .cart-chevron.open { transform: rotate(180deg); }

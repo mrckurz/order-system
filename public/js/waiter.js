@@ -186,11 +186,34 @@ function renderCart() {
   renderReview();
 }
 
-$('cartSummary').addEventListener('click', () => {
-  cartExpanded = !cartExpanded;
+function setCartExpanded(v) {
+  cartExpanded = v;
   $('cartList').hidden = !cartExpanded;
   $('cartChevron').classList.toggle('open', cartExpanded);
   updateCartSpacing();
+}
+
+// The grabber acts like a bottom-sheet handle: tap toggles, and a deliberate
+// vertical swipe pulls the order details up (open) or down (closed).
+const summaryEl = $('cartSummary');
+let dragStartY = null;
+let didSwipe = false;
+summaryEl.addEventListener('pointerdown', (e) => {
+  dragStartY = e.clientY; didSwipe = false;
+  // Capture so pointerup lands here even if the finger slides off the handle.
+  try { summaryEl.setPointerCapture(e.pointerId); } catch {}
+});
+summaryEl.addEventListener('pointercancel', () => { dragStartY = null; });
+summaryEl.addEventListener('pointerup', (e) => {
+  if (dragStartY !== null && Math.abs(e.clientY - dragStartY) > 24) {
+    didSwipe = true;
+    setCartExpanded(e.clientY < dragStartY); // swipe up = open, down = close
+  }
+  dragStartY = null;
+});
+summaryEl.addEventListener('click', () => {
+  if (didSwipe) { didSwipe = false; return; } // the swipe already handled it
+  setCartExpanded(!cartExpanded);
 });
 
 // Reserve exactly as much space at the bottom of the menu as the cart bar
