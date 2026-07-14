@@ -146,12 +146,23 @@ async function renderWaiters() {
         }, '📤 ' + t('share')));
       }
     }
+    // Issue a fresh link for the SAME waiter record, with a new validity.
+    // The hours field lets the admin set how long the new link stays valid;
+    // it is grouped with the button so the two always stay adjacent.
+    const relinkHrs = el('input', {
+      type: 'number', value: '24', min: '1', title: t('validFor'),
+      style: 'width:3.4rem;min-height:38px;text-align:center;padding:.3rem',
+    });
     actions.append(
-      el('button', { class: 'btn-sm btn-ghost', onclick: async () => {
-        const r = await api(`/admin/waiters/${w.id}/relink`, { method: 'POST', token });
-        renderWaiters();
-        if (r.link) { try { await navigator.clipboard.writeText(r.link); toast(t('copied')); } catch {} }
-      } }, '🔗 ' + t('link'))
+      el('div', { class: 'row', style: 'gap:.3rem;flex:0 0 auto' },
+        relinkHrs,
+        el('button', { class: 'btn-sm btn-ghost', onclick: async () => {
+          const hours = Number(relinkHrs.value) || 24;
+          const r = await api(`/admin/waiters/${w.id}/relink`, { method: 'POST', token, body: { hours } });
+          renderWaiters();
+          if (r.link) { try { await navigator.clipboard.writeText(r.link); toast(t('copied')); } catch {} }
+        } }, '🔗 ' + t('newLink'))
+      )
     );
     if (w.status === 'active' || w.status === 'pending') {
       actions.append(el('button', { class: 'btn-sm btn-ghost', onclick: async () => {
