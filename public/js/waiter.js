@@ -83,6 +83,10 @@ $('logoutBtn').addEventListener('click', () => {
 });
 $('sendLabel').textContent = t('send');
 $('clearBtn').textContent = t('clear');
+$('reviewLabel').textContent = t('finishOrder');
+$('reviewTitle').textContent = t('reviewTitle');
+$('reviewTotalLabel').textContent = t('total');
+$('reviewBack').textContent = t('back');
 $('tableInput').placeholder = t('table') + ' * (' + t('required') + ')';
 $('noteInput').placeholder = t('note') + ' (optional)';
 
@@ -144,26 +148,50 @@ function syncTiles() {
 }
 
 // ---- Render cart ----
+// A single editable cart line, reused by the compact list and the review sheet.
+function cartLineEl(article, qty) {
+  return el('div', { class: 'cart-line' },
+    el('span', { class: 'grow' }, article.name),
+    el('span', { class: 'muted' }, money(article.price * qty)),
+    el('div', { class: 'qty-ctrl' },
+      el('button', { class: 'btn-ghost', onclick: () => setQty(article, qty - 1) }, '−'),
+      el('span', {}, String(qty)),
+      el('button', { class: 'btn-ghost', onclick: () => setQty(article, qty + 1) }, '+')
+    )
+  );
+}
+
+// The item list stays collapsed by default so the menu tiles remain visible;
+// the waiter expands it deliberately (via the summary row) to edit.
+let cartExpanded = false;
 function renderCart() {
   const list = $('cartList');
   list.innerHTML = '';
-  $('cartBar').hidden = cart.size === 0;
-  for (const { article, qty } of cart.values()) {
-    list.append(
-      el('div', { class: 'cart-line' },
-        el('span', { class: 'grow' }, article.name),
-        el('span', { class: 'muted' }, money(article.price * qty)),
-        el('div', { class: 'qty-ctrl' },
-          el('button', { class: 'btn-ghost', onclick: () => setQty(article, qty - 1) }, '−'),
-          el('span', {}, String(qty)),
-          el('button', { class: 'btn-ghost', onclick: () => setQty(article, qty + 1) }, '+')
-        )
-      )
-    );
+  const empty = cart.size === 0;
+  $('cartBar').hidden = empty;
+  if (empty) {
+    cartExpanded = false;
+    closeReview();
   }
+  let totalQty = 0;
+  for (const { article, qty } of cart.values()) {
+    totalQty += qty;
+    list.append(cartLineEl(article, qty));
+  }
+  list.hidden = !cartExpanded;
+  $('cartChevron').classList.toggle('open', cartExpanded);
+  $('cartSummaryText').textContent = `${totalQty} ${t('items')} · ${money(cartTotal())}`;
   $('cartTotal').textContent = money(cartTotal());
   updateCartSpacing();
+  renderReview();
 }
+
+$('cartSummary').addEventListener('click', () => {
+  cartExpanded = !cartExpanded;
+  $('cartList').hidden = !cartExpanded;
+  $('cartChevron').classList.toggle('open', cartExpanded);
+  updateCartSpacing();
+});
 
 // Reserve exactly as much space at the bottom of the menu as the cart bar
 // occupies, so every menu item stays reachable by scrolling.
@@ -220,14 +248,49 @@ async function flushQueue() {
   }
 }
 
-$('sendBtn').addEventListener('click', () => {
-  if (cart.size === 0) return;
+// ---- Review step (final check before an order is sent) ----
+function closeReview() { $('reviewOverlay').hidden = true; }
+
+function renderReview() {
+  if ($('reviewOverlay').hidden) return;
+  const list = $('reviewList');
+  list.innerHTML = '';
+  for (const { article, qty } of cart.values()) list.append(cartLineEl(article, qty));
+  const table = $('tableInput').value.trim();
+  const note = $('noteInput').value.trim();
+  const meta = $('reviewMeta');
+  meta.innerHTML = '';
+  meta.append(
+    el('div', {}, el('strong', {}, t('table') + ': '), table || '–'),
+    note ? el('div', {}, el('strong', {}, t('note') + ': '), note) : null
+  );
+  $('reviewTotal').textContent = money(cartTotal());
+}
+
+// Enforce the mandatory table number, then open the review sheet.
+function requireTable() {
   const table = $('tableInput').value.trim();
   if (table === '') {
     toast(t('tableRequired'), true);
     $('tableInput').focus();
-    return;
+    return null;
   }
+  return table;
+}
+
+$('reviewBtn').addEventListener('click', () => {
+  if (cart.size === 0) return;
+  if (requireTable() === null) return;
+  $('reviewOverlay').hidden = false;
+  renderReview();
+});
+$('reviewClose').addEventListener('click', closeReview);
+$('reviewBack').addEventListener('click', closeReview);
+
+$('confirmSendBtn').addEventListener('click', () => {
+  if (cart.size === 0) return;
+  const table = requireTable();
+  if (table === null) { closeReview(); return; }
   const order = {
     clientKey: newKey(),
     table,
@@ -238,6 +301,7 @@ $('sendBtn').addEventListener('click', () => {
   cart.clear();
   $('tableInput').value = '';
   $('noteInput').value = '';
+  closeReview();
   renderCart();
   syncTiles();
   toast(navigator.onLine ? t('sent') : t('savedOffline'));

@@ -22,14 +22,38 @@
   </main>
 
   <div class="cart-bar" id="cartBar" hidden>
-    <div class="cart-list" id="cartList"></div>
+    <button class="cart-summary" id="cartSummary" type="button">
+      <span id="cartSummaryText"></span>
+      <span class="cart-chevron" id="cartChevron">▴</span>
+    </button>
+    <div class="cart-list" id="cartList" hidden></div>
     <div class="row" style="margin:.5rem 0">
       <input id="tableInput" placeholder="Tisch *" required class="grow" />
       <input id="noteInput" placeholder="Notiz" class="grow" />
     </div>
     <div class="row">
       <button class="btn-ghost btn-sm" id="clearBtn"></button>
-      <button class="btn-primary grow" id="sendBtn"><span id="sendLabel"></span> · <span id="cartTotal"></span></button>
+      <button class="btn-primary grow" id="reviewBtn"><span id="reviewLabel"></span> · <span id="cartTotal"></span></button>
+    </div>
+  </div>
+
+  <div class="review-overlay" id="reviewOverlay" hidden>
+    <div class="review-sheet">
+      <div class="review-head">
+        <h2 id="reviewTitle"></h2>
+        <button class="btn-ghost btn-sm" id="reviewClose" aria-label="close">✕</button>
+      </div>
+      <div class="review-meta" id="reviewMeta"></div>
+      <div class="review-list" id="reviewList"></div>
+      <div class="review-foot">
+        <div class="row" style="justify-content:space-between;font-weight:600">
+          <span id="reviewTotalLabel"></span><span id="reviewTotal"></span>
+        </div>
+        <div class="row">
+          <button class="btn-ghost" id="reviewBack"></button>
+          <button class="btn-primary grow" id="confirmSendBtn"><span id="sendLabel"></span></button>
+        </div>
+      </div>
     </div>
   </div>
 
