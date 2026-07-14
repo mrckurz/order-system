@@ -83,7 +83,7 @@ $('logoutBtn').addEventListener('click', () => {
 });
 $('sendLabel').textContent = t('send');
 $('clearBtn').textContent = t('clear');
-$('tableInput').placeholder = t('table') + ' (optional)';
+$('tableInput').placeholder = t('table') + ' * (' + t('required') + ')';
 $('noteInput').placeholder = t('note') + ' (optional)';
 
 const menu = await api('/menu', { token });
@@ -222,9 +222,15 @@ async function flushQueue() {
 
 $('sendBtn').addEventListener('click', () => {
   if (cart.size === 0) return;
+  const table = $('tableInput').value.trim();
+  if (table === '') {
+    toast(t('tableRequired'), true);
+    $('tableInput').focus();
+    return;
+  }
   const order = {
     clientKey: newKey(),
-    table: $('tableInput').value.trim(),
+    table,
     note: $('noteInput').value.trim(),
     items: [...cart.values()].map(({ article, qty }) => ({ articleId: article.id, qty })),
   };

@@ -52,6 +52,7 @@ button, .btn {
   background: var(--surface-2); color: var(--text);
   cursor: pointer; text-decoration: none;
   display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+  touch-action: manipulation; /* no double-tap-to-zoom when tapping tiles/buttons */
 }
 button:active { transform: scale(.98); }
 .btn-primary { background: var(--brand); color: #fff; }
